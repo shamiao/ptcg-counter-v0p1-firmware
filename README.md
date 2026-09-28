@@ -4,7 +4,7 @@
 
 基于 **STC8H1K08**（8051 内核，TSSOP-20）+ **HT1621B** 段码 LCD 驱动器的 3 位数字手持计数设备，带 7 个按键和蜂鸣器。
 
-> **当前阶段：业务逻辑开发中。** 硬件 bring-up 已完成并逐项验证（详见 [dev-notes/bringup-log.md](dev-notes/bringup-log.md)）；当前固件为清洁骨架——仅初始化全部外设，业务逻辑待实现，见[路线图](#路线图)。
+> **当前阶段：业务逻辑开发中。** 硬件 bring-up 已完成并逐项验证（详见 [dev-notes/bringup-log.md](dev-notes/bringup-log.md)）；时间片内核（20ms WKT 帧循环）、段码显示驱动、按键状态机（单键触发 / 多键拦截）已就绪，计数应用逻辑待实现，见[路线图](#路线图)。
 
 ---
 
@@ -64,7 +64,7 @@ ptcg-counter-v0p1/
 ├── main.c                   # 应用固件主流程（外设初始化 + 业务逻辑位）
 ├── vlcd.c/.h                # VLCD 偏压 PWM、VCC 测量、BGV 出厂值捕获
 ├── ht1621.c/.h              # HT1621 驱动与诊断
-├── buttons.c/.h             # 按键初始化与读取（位掩码）
+├── buttons.c/.h             # 按键读取 + 状态机（单键触发一次 / 多键拦截 / 全松复位）+ KEY0 按下/松开双事件跟踪
 ├── uart.c/.h                # UART1 初始化与发送
 ├── common.c/.h              # 延时、putchar、SleepForever
 ├── hardware-definition.h    # 全局参数 + 引脚/LCD 映射（注释）
@@ -83,14 +83,15 @@ ptcg-counter-v0p1/
 - [bringup-log.md](dev-notes/bringup-log.md) —— 台架验证记录、测量精度、已知问题
 - [vlcd-bias.md](dev-notes/vlcd-bias.md) —— VLCD 偏压方案：拓扑、控制律、验收数据、历史注
 - [firmware-conventions.md](dev-notes/firmware-conventions.md) —— 固件结构与 Keil C51 工程约定
+- [key-debounce-analysis.md](dev-notes/key-debounce-analysis.md) —— 按键消抖设计问答：《AVR 单片机嵌入式系统原理与应用实践（第2版）》9.2.2 的 10ms 三态确认方案 vs 本项目 20ms 采样，为何不默认采用 + 启用判据
 - [main-debug-c.txt](dev-notes/main-debug-c.txt) —— bring-up 调试固件存档（不再编译）
 
 ## 路线图
 
-1. 段码驱动函数（数字 → SEG RAM 写入）；
-2. 按键扫描 + 去抖（KEY_MAIN/KEY1–6，KEY_MAIN 在 INT0 可用于唤醒）；
-3. 计数应用逻辑与显示刷新；
-4. 低功耗：空闲时 STC8H 掉电模式 + 按键唤醒、HT1621 LCD_ON/OFF、ADC 用完即关。
+1. ~~段码显示驱动~~（已完成：display 模块 + 36 字符查表，MSB-first 位序已台架验证）；
+2. ~~按键扫描 + 去抖~~（已完成：`Buttons_Scan()` 状态机，消抖即 20ms 采样节拍）；
+3. 计数应用逻辑与显示刷新（核心已完成：0~990 饱和 DMG 计数器，u16 纯单位计数，KEY1..6 = ±100/±10；KEY0 业务动作待定）；
+4. 低功耗：空闲时 STC8H 掉电模式 + 按键唤醒（KEY_MAIN 在 INT0，唤醒后须区分唤醒源）、HT1621 LCD_ON/OFF、ADC 用完即关。
 
 ## 参考资料
 

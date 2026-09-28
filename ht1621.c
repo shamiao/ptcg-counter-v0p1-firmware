@@ -90,8 +90,21 @@ void HT1621_LcdOn(void)
     HT1621_SendCommand(0x03);     /* LCD_ON        0000-0011-X */
 }
 
+/* buzzer primitives: the tone generator runs from the same RC_256K
+ * oscillator as the LCD driver, so SysInit must precede any TONE.  */
+void HT1621_Buzzer2kOn(void)
+{
+    HT1621_SendCommand(0x60);     /* TONE 2K  011X-XXXX-X */
+    HT1621_SendCommand(0x09);     /* TONE ON  0000-1001-X */
+}
+
+void HT1621_BuzzerOff(void)
+{
+    HT1621_SendCommand(0x08);     /* TONE OFF 0000-1000-X */
+}
+
 /* WRITE burst: mode ID "101", address A5..A0 MSB-first, then n data
- * nibbles LSB-first; the address auto-increments after each nibble. */
+ * nibbles MSB-first (D3..D0); the address auto-increments per nibble. */
 void HT1621_WriteRam(unsigned char addr, unsigned char *src, unsigned char n)
 {
     unsigned char i;

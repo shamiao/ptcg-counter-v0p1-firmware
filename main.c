@@ -11,14 +11,64 @@
 #include "display.h"
 
 /*
- * ptcg-counter-v0p1 application firmware (business logic TBD).
+ * ptcg-counter-v0p1 application firmware.
  *
  * Boot: capture the factory BGV mirror, bring up the UART, run the
  * overvoltage gate, init the remaining peripherals, apply the one-shot
- * VLCD policy, and bring up the HT1621 system oscillator. Everything
- * below that is up to the business logic. The debug bring-up firmware
- * this replaces is archived at dev-notes/main-debug-c.txt.
+ * VLCD policy, and bring up the HT1621 system oscillator. The debug
+ * bring-up firmware this replaces is archived at dev-notes/main-debug-c.txt.
  */
+
+/* ------------- saturating counter (core business logic) --------------
+ * A plain 0..990 counter in a u16, stepped by the keys: 1=+100,
+ * 2/3=+10, 4=-100, 5/6=-10; it clamps at both ends (no wrap). The
+ * value is kept in plain units - NOT decades - so a future config-
+ * urable step size (100/10/1) drops in without re-representation.
+ * Digits are recomputed from the value on every render, so cross-
+ * digit carries (90->100 and back) fall out by construction; leading
+ * zeros are blanked, zero shows as "  0".                             */
+static unsigned int data count_val = 0;
+
+#define COUNTER_MAX  990u
+
+static void Counter_ApplyKey(unsigned char key)
+{
+    switch (key)
+    {
+    case BUTTON_KEY1:                        /* +100                  */
+        if (count_val > COUNTER_MAX - 100u) count_val = COUNTER_MAX;
+        else                                count_val += 100;
+        break;
+    case BUTTON_KEY2:                        /* +10                   */
+    case BUTTON_KEY3:
+        if (count_val > COUNTER_MAX - 10u) count_val = COUNTER_MAX;
+        else                               count_val += 10;
+        break;
+    case BUTTON_KEY4:                        /* -100                  */
+        if (count_val < 100u) count_val = 0;
+        else                  count_val -= 100;
+        break;
+    case BUTTON_KEY5:                        /* -10                   */
+    case BUTTON_KEY6:
+        if (count_val < 10u) count_val = 0;
+        else                 count_val -= 10;
+        break;
+    default:                                 /* KEY0: action TBD      */
+        break;
+    }
+}
+
+static void Counter_Render(void)
+{
+    unsigned int data v = count_val;
+
+    g_disp_buf[0] = DISP_EN | (unsigned char)(v % 10u);        /* units  */
+    g_disp_buf[1] = (v >= 10u)                                /* tens   */
+        ? (unsigned char)(DISP_EN | ((v / 10u) % 10u)) : 0;
+    g_disp_buf[2] = (v >= 100u)                               /* hundr. */
+        ? (unsigned char)(DISP_EN | (v / 100u)) : 0;
+    Display_Render();
+}
 
 void main(void)
 {
@@ -50,11 +100,13 @@ void main(void)
     HT1621_SysInit();            /* SYS_EN + RC_256K: LCD / TONE base */
     HT1621_LcdOn();              /* BIAS 1/3 4COM + LCD_ON            */
 
-    /* self-test display: "8.8.8" for 1s, then blank (LCD stays on) */
+    /* self-test: "8.8.8" + 2kHz buzzer for 0.8s, then blank + mute for
+       0.5s (LCD stays on; the beep also proves the TONE chain live) */
     g_disp_buf[0] = DISP_EN | 8;
     g_disp_buf[1] = DISP_EN | DISP_DP | 8;
     g_disp_buf[2] = DISP_EN | DISP_DP | 8;
     Display_Render();
+    HT1621_Buzzer2kOn();
 
     {   /* boot report: the WKT calibration actually in use */
         unsigned int data fwt_rep = g_fwt_hz;
@@ -62,27 +114,55 @@ void main(void)
         printf("wkt fwt=%u cnt=%u\r\n", fwt_rep, cnt_rep);
     }
 
-    DelayMs(1000);               /* 1s of "8.8.8"; also drains the UART */
+    DelayMs(800);                /* 0.8s of "8.8.8" + beep; drains UART */
     g_disp_buf[0] = g_disp_buf[1] = g_disp_buf[2] = 0;
-    Display_Render();            /* end of self-test: dark panel        */
+    Display_Render();            /* end of all-on: dark panel           */
+    HT1621_BuzzerOff();          /* mute as the panel blanks            */
+
+    DelayMs(500);                /* 0.5s of blank + silence             */
 
     Timeslice_Init();            /* WKT: 20ms slices start here */
 
-    g_disp_buf[0] = DISP_EN | 0; /* business idle display: "  0"       */
-    Display_Render();
+    Counter_Render();            /* counter idle display: "  0"        */
 
-    /* Slice-mechanism demo: every 50 slices (~1s) advance the charset
-       test one step - the 36 glyphs cycle three at a time (012, 345,
-       ... , XYZ) - and print one UART line to cross-check the cadence.
-       Keep printf out of the release build (see dev-notes/
-       firmware-conventions.md). */
+    /* Frame loop: step the key FSM once per slice; an accepted press
+       applies its HP step (saturated) and re-renders the counter.
+       KEY0 press/release events arrive but carry no business action
+       yet. The 1s heartbeat print stays as the slice-cadence check;
+       all prints are dev-phase only (see firmware-conventions). */
     {
         unsigned int data n = 0;         /* slices completed           */
         unsigned char data div50 = 0;
-        unsigned char data base = 0;     /* first code of the triple   */
 
         while (1)
         {
+            unsigned char data ev = Buttons_Scan();
+            if (ev)
+            {
+                unsigned char data idx = 0;
+                Counter_ApplyKey(ev);    /* clamped +/- step           */
+                Counter_Render();
+                while (ev > 1)           /* mask -> key number         */
+                {
+                    ev >>= 1;
+                    idx++;
+                }
+
+                {
+                    unsigned int data v = count_val;
+                    printf("k%bu v%u\r\n", idx, v);
+                }
+                DelayMs(1);              /* stop bit must get out
+                                            before STOP kills UART   */
+            }
+
+            if (Buttons_Key0Released())
+            {
+                printf("k0u\r\n");       /* KEY0 release: action TBD   */
+                DelayMs(1);              /* stop bit must get out
+                                            before STOP kills UART   */
+            }
+
             n++;
             if (++div50 >= 50)
             {
@@ -90,14 +170,6 @@ void main(void)
                 printf("ts %u\r\n", n);
                 DelayMs(1);              /* stop bit must get out
                                             before STOP kills UART   */
-
-                g_disp_buf[2] = DISP_EN | base;        /* hundreds */
-                g_disp_buf[1] = DISP_EN | (base + 1);  /* tens     */
-                g_disp_buf[0] = DISP_EN | (base + 2);  /* units    */
-                Display_Render();
-                base += 3;
-                if (base >= 36)
-                    base = 0;
             }
 
             Slice_SleepOneTick();
