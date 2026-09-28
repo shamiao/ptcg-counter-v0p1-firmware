@@ -1,0 +1,140 @@
+#include <stc8h.h>
+#include <stdio.h>
+
+#include "hardware-definition.h"
+#include "common.h"
+#include "uart.h"
+#include "vlcd.h"
+#include "ht1621.h"
+#include "buttons.h"
+
+/*
+ * STC8H1K08 debug firmware: continuously print status via UART1.
+ *
+ * Boot sequence: VLCD_EarlyInit() captures the factory BGV mirror
+ * from idata (MUST be the first statement - see vlcd.c), then the
+ * per-module inits (UART1, buttons, HT1621 bus), then VCC is measured
+ * once via ADC. The FIRST functional check of the boot is the
+ * overvoltage gate: VCC >= VCC_OVERVOLT_MV -> print the fault and
+ * enter the shared fatal terminator SleepForever() (safe IO states,
+ * ALL interrupts off, permanent power-down + dead loop), and nothing
+ * else runs. Then the VLCD drive is set ONCE per the RC-filtered
+ * policy (see vlcd.c): VCC <= 3.26V -> P1.1 push-pull high (best
+ * effort); above -> PWM duty (3.2V+63mV)/VCC with a hard 60% floor;
+ * ADC failure -> the 60% floor. The HT1621 bring-up that follows
+ * carries no overvoltage considerations of its own.
+ *
+ * NOTE: MAIN_FOSC_HZ must match the IRC frequency set in STC-ISP/
+ *       stcgal when programming the chip. Actual baud @6MHz/9600 =
+ *       9615 (+0.16%, OK).
+ *
+ * Debug-only variables (report buffers, self-test values, alive
+ * counter) are explicitly declared in xdata to spare the 128-byte
+ * DATA space. STARTUP.A51 clears IDATA but not XRAM (XDATALEN=0), so
+ * each of them is written before its first read.
+ */
+
+void main(void)
+{
+    unsigned long xdata count;   /* debug: alive-loop counter */
+    unsigned long vcc_mv;
+    unsigned int  ccr;           /* ccr==0 -> PWM off, P1.1 GPIO high */
+    unsigned int  xdata low_pm;  /* debug: P1.1 self-test reading */
+    unsigned char xdata keys;    /* debug: alive-loop button snapshot */
+
+    count = 0;                   /* XRAM is not cleared at boot */
+
+    VLCD_EarlyInit();            /* FIRST: capture the idata factory
+                                    BGV mirror before anything else */
+
+    P5M0 &= ~0x10;               /* P5.4 (NC) -> high-Z input (masked) */
+    P5M1 |= 0x10;
+
+    UART1_Init();
+    Buttons_Init();
+    HT1621_Init();
+
+    /* Overvoltage gate: THE FIRST functional check of the boot.
+       VCC is measured once; nothing later re-checks overvoltage. */
+    vcc_mv = VCC_MeasureMv();
+    if (vcc_mv >= VCC_OVERVOLT_MV)
+    {
+        printf("[FAULT] VCC %lumV >= %lumV limit: too high, halting\r\n",
+               vcc_mv, (unsigned long)VCC_OVERVOLT_MV);
+        SleepForever();
+    }
+
+    printf("STC8H1K08 debug build, Fosc=%luHz, UART1 %lu 8N1\r\n",
+           MAIN_FOSC_HZ, UART_BAUDRATE);
+    /* NOTE: C51 printf clobbers deep variadic args holding runtime
+       long-division expressions. So: precompute every value into a
+       plain local, keep <=2 long args per printf call, and never call
+       functions inside the printf argument list.                    */
+    printf("VCC self-measured: %lumV, ADC15 avg N=%lu\r\n",
+           vcc_mv, (unsigned long)g_adc15_n);
+
+    /* VLCD policy: applied ONCE here (continuous regulation is a
+       later, separate design for the production firmware). */
+    ccr = VLCD_ApplyPolicy(vcc_mv);
+    if (vcc_mv == 0)
+        printf("ADC FAILED: 60%% duty floor applied!\r\n");
+
+    if (ccr != 0)
+    {
+        unsigned long xdata duty_pm, duty_i, duty_f;  /* debug print */
+
+        duty_pm = 1000UL * ccr / VLCD_PWM_PERIOD;   /* duty, permille */
+        duty_i  = duty_pm / 10;
+        duty_f  = duty_pm % 10;
+        printf("VLCD: duty %lu.%lu%%,", duty_i, duty_f);
+        printf(" CCR=%lu/120, DC VLCD ~%lumV\r\n",
+               (unsigned long)ccr, 3200UL);
+    }
+    else
+    {
+        printf("VLCD: VCC <= 3.26V max, PWM off, P1.1 push-pull high\r\n");
+    }
+
+    {
+        unsigned int bgv_used;   /* precompute: printf args must be
+                                    plain values (C51 convention) */
+        bgv_used = ReadBGVmV();
+        printf("BGV raw=0x%04lX, used=%umV\r\n",
+               (unsigned long)g_bgv_raw, bgv_used);
+    }
+
+    low_pm = MeasureP11LowPermillage();
+    if (ccr != 0)
+    {
+        unsigned long xdata exp_pm;  /* debug: expected low permille */
+
+        exp_pm = 1000UL * (VLCD_PWM_PERIOD - ccr) / VLCD_PWM_PERIOD;
+        printf("VLCD self-test: P1.1 low %lupm", (unsigned long)low_pm);
+        printf(" (want ~%lupm, +-30 sampler bias)\r\n", exp_pm);
+    }
+    else
+    {
+        printf("VLCD self-test: P1.1 low %lupm (want 0pm)\r\n",
+               (unsigned long)low_pm);
+    }
+
+    HT1621_DataFloatTest();      /* diag: DATA line pull-up?  */
+    HT1621_SysInit();            /* SYS_EN + RC_256K: TONE & LCD need it */
+
+    HT1621_BeepTest();           /* diag: buzzer + oscillator check */
+
+    /* No overvoltage considerations below: the boot-time gate above
+       already settled that question once and for all. */
+    HT1621_AllSegmentsOn();      /* display test: all segments on */
+    HT1621_ReadDump();           /* diag: verify RAM via pure READ */
+
+    /* Alive loop: status print only (VCC/PWM were set once above) */
+    while (1)
+    {
+        count++;
+        keys = Buttons_Read();   /* live key watch: bit per key,
+                                    see buttons.h for the mapping */
+        printf("[%06lu] alive keys=%02bX\r\n", count, keys);
+        DelayMs(2000);
+    }
+}

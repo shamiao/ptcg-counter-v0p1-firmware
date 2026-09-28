@@ -1,0 +1,93 @@
+# ============================================================================
+# ptcg-counter-v0p1 .gitignore (Keil C51 embedded project)
+#
+# Intentionally NOT tracked: Keil build outputs, per-user IDE state, vendor
+# datasheets, and bench-session scratch files.
+# What stays tracked: main.c, hardware-definition.h, STARTUP.A51,
+# ptcg-counter-v0p1.uvproj, README.md, dev-notes/, and this file.
+# ============================================================================
+
+# ---------------- Keil uVision build outputs ----------------
+# Compiler/linker artifacts (.obj, .lnp, .SBR, .hex, build_log.htm, ExtDll.iex)
+/Objects/
+
+# Assembler/compiler listings and the linker map (regenerated every build)
+/Listings/
+
+# uVision build console log
+build.log
+
+# Generic build-artifact extensions, in case output paths ever get reconfigured
+*.hex
+*.obj
+*.lst
+*.map
+*.lnp
+*.sbr
+*.iex
+*.plg
+*.dep
+
+# ---------------- Keil uVision per-user state ----------------
+# GUI window layout and editor history (machine-specific)
+*.uvgui.*
+
+# User options: debugger/flash settings, breakpoints (uvproj alone is enough to build)
+*.uvopt
+
+# uVision automatic backup copies
+*.bak
+
+# ---------------- Vendor reference material ----------------
+/stc-pdf/
+/stc-txt/
+
+# ---------------- Bench / debug scratch ----------------
+# Captured UART logs and throwaway files from hardware test sessions
+/temp/
+
+# ---------------- OS junk ----------------
+# Windows Explorer thumbnails and folder customization
+Thumbs.db
+desktop.ini
+
+# macOS Finder metadata
+.DS_Store
+
+# ---------------- Editor / IDE scratch ----------------
+.vscode/
+.idea/
+*.swp
+*~
+
+# ===== ↑ 以上同步自 .gitignore（「从 .gitignore 同步」只重写以上部分）=====
+.git/
+.hg/
+.svn/
+node_modules/
+bower_components/
+jspm_packages/
+__pycache__/
+site-packages/
+venv/
+coverage/
+htmlcov/
+lcov-report/
+cmakefiles/
+cmake-build-*/
+bazel-*/
+pods/
+deriveddata/
+storybook-static/
+playwright-report/
+test-results/
+allure-results/
+allure-report/
+cdk.out/
+*.egg-info/
+*.dist-info/
+eggs/
+pip-wheel-metadata/
+wheels/
+# ----- ↑ 以上为 ZCode 默认排除规则（自定义规则请写在本行下方，不会被同步/恢复改动）-----
+# 自定义规则写在下方（本行提示可删除）
