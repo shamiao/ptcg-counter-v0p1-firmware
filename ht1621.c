@@ -16,7 +16,10 @@
  * Wire bit order (per datasheet timing figures):
  *   mode ID "100"/"101" MSB-first; address A5..A0 MSB-first;
  *   command code C8..C1 MSB-first + 1 trailing don't-care;
- *   data nibble D0..D3 LSB-first.
+ *   data nibbles MSB-first (D3..D0) - BENCH-VERIFIED: the datasheet
+ *   figure labels them "D0 D1 D2 D3", but sending D0 first latches
+ *   the nibble bit-reversed ('0' showed as bdefg); every field on
+ *   this bus is MSB-first, matching classic HT1621 drivers.
  * RAM map: address n = SEG n (0..31), bits D0..D3 = COM0..COM3.
  * HT1621 powers up in SYS_DIS; init runs >50ms after VCC (after ADC
  * self-measure + banner prints), so no extra power-up wait is needed. */
@@ -79,6 +82,36 @@ void HT1621_SysInit(void)
     HT1621_SendCommand(0x18);     /* RC_256K osc   0001-10XX-X */
 }
 
+/* normal display bring-up (not the all-on diagnostic): LCD bias and
+ * drive on. Panel is 1/3 bias, 4 COM.                               */
+void HT1621_LcdOn(void)
+{
+    HT1621_SendCommand(0x29);     /* BIAS 1/3, 4COM 0010-10X1-X */
+    HT1621_SendCommand(0x03);     /* LCD_ON        0000-0011-X */
+}
+
+/* WRITE burst: mode ID "101", address A5..A0 MSB-first, then n data
+ * nibbles LSB-first; the address auto-increments after each nibble. */
+void HT1621_WriteRam(unsigned char addr, unsigned char *src, unsigned char n)
+{
+    unsigned char i;
+
+    HT1621_CS = 0;
+    HT1621_SendWrBit(1);
+    HT1621_SendWrBit(0);
+    HT1621_SendWrBit(1);               /* mode ID "101" = WRITE     */
+    for (i = 0; i < 6; i++)            /* address A5..A0            */
+        HT1621_SendWrBit((addr << i) & 0x20);
+    while (n--)
+    {
+        for (i = 0; i < 4; i++)        /* D3..D0, MSB first         */
+            HT1621_SendWrBit((*src >> (3 - i)) & 1);
+        src++;
+    }
+    HT1621_BitDelay();                 /* CS hold                   */
+    HT1621_CS = 1;
+}
+
 /* display test (healthy path only, below the overvoltage fence):
  * BIAS + LCD_ON, then light every segment via READ-MODIFY-WRITE     */
 void HT1621_AllSegmentsOn(void)
@@ -105,18 +138,18 @@ void HT1621_AllSegmentsOn(void)
     {
         rd = 0;
         P1M0 &= ~0x80; P1M1 |= 0x80;  /* P1.7 -> high-Z: HT1621 drives DATA */
-        for (i = 0; i < 4; i++)       /* read D0..D3, LSB first, /RD clocks */
+        for (i = 0; i < 4; i++)       /* read D3..D0, /RD clocks          */
         {
             HT1621_RD = 0;
             HT1621_BitDelay();   /* RD low phase + data valid */
-            if (HT1621_DATA) rd |= (1 << i);
+            rd = (rd << 1) | (HT1621_DATA ? 1 : 0);
             HT1621_RD = 1;
             HT1621_BitDelay();   /* RD high phase */
         }
         P1M1 &= ~0x80; P1M0 |= 0x80;  /* P1.7 back to push-pull output */
         rdv[a] = rd;
-        for (i = 0; i < 4; i++)       /* write D0..D3 LSB first, OR all-on */
-            HT1621_SendWrBit(((rd | 0x0F) >> i) & 1);
+        for (i = 0; i < 4; i++)       /* write D3..D0, OR all-on */
+            HT1621_SendWrBit(((rd | 0x0F) >> (3 - i)) & 1);
     }
     HT1621_BitDelay();           /* CS hold */
     HT1621_CS = 1;                    /* end RMW session */
@@ -189,11 +222,11 @@ void HT1621_ReadDump(void)
     for (seg = 0; seg < 32; seg++)
     {
         rd = 0;
-        for (i = 0; i < 4; i++)     /* D0..D3 LSB first, /RD clocks */
+        for (i = 0; i < 4; i++)     /* D3..D0, /RD clocks       */
         {
             HT1621_RD = 0;
             HT1621_BitDelay();
-            if (HT1621_DATA) rd |= (1 << i);
+            rd = (rd << 1) | (HT1621_DATA ? 1 : 0);
             HT1621_RD = 1;
             HT1621_BitDelay();
         }

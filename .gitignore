@@ -3,8 +3,9 @@
 #
 # Intentionally NOT tracked: Keil build outputs, per-user IDE state, vendor
 # datasheets, and bench-session scratch files.
-# What stays tracked: main.c, hardware-definition.h, STARTUP.A51,
-# ptcg-counter-v0p1.uvproj, README.md, dev-notes/, and this file.
+# What stays tracked: application sources (*.c/*.h), STARTUP.A51,
+# ptcg-counter-v0p1.uvproj, tools/gen7segtab.py, README.md, dev-notes/,
+# and this file.
 # ============================================================================
 
 # ---------------- Keil uVision build outputs ----------------

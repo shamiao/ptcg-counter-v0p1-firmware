@@ -1,0 +1,3 @@
+# Python interpreter byproducts only; gen7segtab.py itself is tracked
+__pycache__/
+*.pyc

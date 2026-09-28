@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>单个七段数码管字形方案(0-9 / A-Z)</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;padding:28px 34px;background:#0f0f13;color:#e7e7ec;
+       font:15px/1.7 system-ui,"Microsoft YaHei",sans-serif}
+  h1{font-size:24px;margin:0 0 8px}
+  h2{font-size:19px;margin:36px 0 12px;color:#fff}
+  .lead{max-width:980px;color:#b9b9c4;margin:4px 0 10px}
+  .chips{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 4px}
+  .chip{font-size:13px;border:1px solid #33333e;background:#17171d;
+        border-radius:99px;padding:3px 12px;color:#c7ccd6}
+  .chip b{color:#fff}
+
+  .legend{display:flex;gap:30px;align-items:center;flex-wrap:wrap}
+  .legend .dg{width:158px;flex:none}
+  .legend ul{list-style:none;margin:0;padding:0;color:#b9b9c4;columns:2;column-gap:34px}
+  .legend li{margin:3px 0;break-inside:avoid}
+  .legend b{color:#fff;font-family:ui-monospace,Consolas,monospace;display:inline-block;width:2.4em}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));
+        gap:12px;max-width:1220px}
+  .cell{background:#17171d;border:1px solid #26262f;border-radius:12px;
+        padding:14px 10px 12px;text-align:center}
+  .cell .dg{width:66px;height:auto;display:block;margin:0 auto 8px}
+  .well{fill:#0a0a0f}
+  polygon.off{fill:#231319}
+  polygon.on{fill:#ff4a3d;filter:drop-shadow(0 0 5px rgba(255,74,61,.55))}
+  circle.off{fill:#1c1014}
+  circle.on{fill:#ff4a3d;filter:drop-shadow(0 0 5px rgba(255,74,61,.55))}
+  text.lb{fill:#cbd0da;font:14px ui-monospace,Consolas,monospace;text-anchor:middle}
+  .ch{font-size:20px;font-weight:700;color:#fff}
+  .ch .arr{color:#8a8a96;font-weight:400}
+  .meta{font:12px/1.5 ui-monospace,Consolas,monospace;color:#9aa3b2;margin:3px 0 7px}
+  .tag{display:inline-block;font-size:12px;padding:1px 9px;border-radius:99px;border:1px solid}
+  .tag.num {color:#c7ccd6;border-color:#3a3a46;background:#1d1d24}
+  .tag.up  {color:#63d97e;border-color:#274d31;background:#12241a}
+  .tag.low {color:#e8c84e;border-color:#54431a;background:#262012}
+  .tag.same{color:#5db3f0;border-color:#1f3d58;background:#11212e}
+  .tag.imp {color:#f06a6a;border-color:#5a2323;background:#2a1414}
+  .tag.fb  {color:#c7ccd6;border-color:#3a3a46;background:#1d1d24;border-style:dashed}
+  .note{font-size:12px;color:#8f8f9c;margin-top:6px}
+  .cell.imp{border-color:#3d2020}
+  .cell.fb{border-style:dashed}
+
+  .cats{border-collapse:collapse;max-width:980px}
+  .cats th,.cats td{border:1px solid #26262f;padding:8px 13px;text-align:left;
+                    vertical-align:top;font-weight:normal}
+  .cats th{color:#fff;background:#17171d}
+  .cats td:first-child{white-space:nowrap}
+  .cats .k-up{color:#63d97e}.cats .k-low{color:#e8c84e}
+  .cats .k-same{color:#5db3f0}.cats .k-imp{color:#f06a6a}
+
+  .variants{max-width:980px;padding-left:20px;color:#c6c6d0}
+  .variants li{margin:7px 0}
+  .variants code{font:13px ui-monospace,Consolas,monospace;color:#ffb0a9;background:#1d1517;
+                 padding:1px 6px;border-radius:5px}
+  .foot{color:#77777f;font-size:13px;margin-top:34px;max-width:980px}
+</style>
+</head>
+<body>
+
+<h1>单个七段数码管:0–9 / A–Z 字形方案</h1>
+<p class="lead">
+七段数码管只有 3 条横段(a、g、d)加 4 条竖段(f、b、e、c),<b>没有任何斜线段</b>。
+本方案的原则:优先大写原形;大写给不出的,用可辨认的小写形;笔画恰好与数字重合的按数字显示;
+完全无法辨认的 5 个字母(K、M、V、W、X)统一显示 "_"(仅点亮底段 d)。
+</p>
+<div class="chips">
+  <span class="chip">可显示 <b>31</b> / 36</span>
+  <span class="chip">大写形 <b>10</b></span>
+  <span class="chip">小写形 <b>9</b></span>
+  <span class="chip">与数字同形 <b>2</b></span>
+  <span class="chip">不可表示 <b>5</b> → "_"</span>
+  <span class="chip">hex 位序:bit0..bit6 = 段 a..g,bit7 = dp</span>
+</div>
+
+<h2>段位定义</h2>
+<div class="legend">
+  <div id="segDiagram"></div>
+  <ul>
+    <li><b>a</b> 顶横</li>
+    <li><b>g</b> 中横</li>
+    <li><b>d</b> 底横</li>
+    <li><b>f</b> 左上竖</li>
+    <li><b>b</b> 右上竖</li>
+    <li><b>e</b> 左下竖</li>
+    <li><b>c</b> 右下竖</li>
+    <li><b>dp</b> 小数点</li>
+  </ul>
+</div>
+
+<h2>字形总表(36 字符 + 兜底字形)</h2>
+<div class="grid" id="grid"></div>
+
+<h2>分类与依据</h2>
+<table class="cats">
+  <tr><th>类别</th><th>字符</th><th>依据</th></tr>
+  <tr><td class="k-up">大写形(10)</td>
+      <td>A E F G H J L P Q U</td>
+      <td>与字母原形一致或非常接近,可直接认读。</td></tr>
+  <tr><td class="k-low">小写形(9)</td>
+      <td>B→b、C→c、D→d、I→i、N→n、O→o、R→r、T→t、Y→y</td>
+      <td>大写形需要斜线或上下双闭环,七段给不出;小写形可辨认,且互不冲突。</td></tr>
+  <tr><td class="k-same">与数字同形(2)</td>
+      <td>S=5、Z=2</td>
+      <td>这几个字母在七段上的笔画恰好与数字完全重合,不存在第二种画法。</td></tr>
+  <tr><td class="k-imp">不可表示(5)</td>
+      <td>K、M、V、W、X → "_"</td>
+      <td>都含斜线笔画,而七段没有斜线段。(V 勉强可借 U 的字形,但与 U 无法区分,不采用。)</td></tr>
+</table>
+
+<h2>变体取舍说明</h2>
+<ul class="variants">
+  <li><b>6 的顶横</b>:标准形带顶横 <code>0x7D</code>。若省去顶横(<code>0x7C</code>)恰好等于 B 的小写形,两者冲突,因此必须保留。</li>
+  <li><b>9 的底横与 Q</b>:标准 9 带底横 <code>0x6F</code>;省去底横(<code>0x67</code>)形似小写 q,本方案把它分配给 Q,使 Q 与 9 可以区分。若使用场景中 Q 与 9 不会同时出现,Q 也可直接用 <code>0x6F</code>。</li>
+  <li><b>G</b>:采用"0 去掉右上竖"的画法(a c d e f,<code>0x3D</code>),形似去掉中横的 6;另有与 6 完全同形的粗略画法,不采用。</li>
+  <li><b>I</b>:小写 i 形 <code>0x45</code>(a c g)——a 作点,c g 作下方竖画,与 1 区分。</li>
+  <li><b>C</b>:采用小写 c 形 <code>0x58</code>(d e g)。</li>
+  <li><b>O</b>:采用小写 o 形 <code>0x5C</code>(c d e g),与数字 0 区分。</li>
+  <li><b>B / D</b>:大写形需要上下双闭环,段数不够,统一用小写形——这也是七段显示的通行惯例。</li>
+  <li><b>"_" 兜底</b>:仅点亮底段 d(<code>0x08</code>)。所有无法表示的字符统一显示此字形。</li>
+</ul>
+
+<p class="foot">
+本页只讨论"一个数码管上单个字符怎么画"。hex 位序(bit0..bit6 = a..g,bit7 = dp)是本文档的统一约定,
+仅用于表达字形;与 HT1621 显存(COM/SEG)的换算在接入驱动时另做,本页不涉及。
+</p>
+
+<script>
+'use strict';
+const SEG_ORDER = 'abcdefg';
+const BIT = {};
+SEG_ORDER.split('').forEach((s, i) => BIT[s] = 1 << i);
+
+/* --- segment polygons: digit box 100x180, thickness 12, inset 2 --- */
+const hp = y => `12,${y} 18,${y-6} 82,${y-6} 88,${y} 82,${y+6} 18,${y+6}`;
+const vp = (x, y1, y2) =>
+  `${x},${y1} ${x+6},${y1+6} ${x+6},${y2-6} ${x},${y2} ${x-6},${y2-6} ${x-6},${y1+6}`;
+const GEO = { a:hp(10), g:hp(90), d:hp(170),
+              f:vp(10,12,88), b:vp(90,12,88), e:vp(10,92,168), c:vp(90,92,168) };
+
+function segPolys(mask) {
+  let p = '';
+  for (const s of SEG_ORDER)
+    p += `<polygon class="${mask & BIT[s] ? 'on' : 'off'}" points="${GEO[s]}"/>`;
+  p += `<circle class="${mask & 0x80 ? 'on' : 'off'}" cx="99" cy="173" r="5"/>`;
+  return p;
+}
+
+/* small skewed digit for the grid */
+function digitSvg(mask) {
+  return `<svg class="dg" viewBox="0 0 112 184" aria-hidden="true">` +
+         `<rect class="well" width="112" height="184" rx="8"/>` +
+         `<g transform="translate(8,2) skewX(-4)">${segPolys(mask)}</g></svg>`;
+}
+
+/* upright fully-lit digit with segment-name labels */
+function diagramSvg() {
+  const L = (x, y, t) => `<text class="lb" x="${x}" y="${y}">${t}</text>`;
+  return `<svg class="dg" viewBox="-20 -20 140 224">` +
+         `<g>${segPolys(0xFF)}` +
+         L(50,-6,'a') + L(-9,54,'f') + L(109,54,'b') + L(109,94,'g') +
+         L(109,134,'c') + L(-9,134,'e') + L(50,200,'d') + L(99,200,'dp') +
+         `</g></svg>`;
+}
+
+/* --- font table: [char, segments|null, category, note] ---
+   categories: num=数字 up=大写形 low=小写形 same=与数字同形 imp=不可表示 */
+const FONT = [
+  ['0','abcdef' ,'num',''],
+  ['1','bc'     ,'num',''],
+  ['2','abdeg'  ,'num',''],
+  ['3','abcdg'  ,'num',''],
+  ['4','bcfg'   ,'num',''],
+  ['5','acdfg'  ,'num','与 S 同形'],
+  ['6','acdefg' ,'num','顶横保留:省去则与 B(b) 冲突'],
+  ['7','abc'    ,'num',''],
+  ['8','abcdefg','num',''],
+  ['9','abcdfg' ,'num','底横保留:无底横变体分给 Q'],
+  ['A','abcefg' ,'up',''],
+  ['B','cdefg'  ,'low','以小写 b 形显示'],
+  ['C','deg'    ,'low','以小写 c 形显示'],
+  ['D','bcdeg'  ,'low','以小写 d 形显示'],
+  ['E','adefg'  ,'up',''],
+  ['F','aefg'   ,'up',''],
+  ['G','acdef'  ,'up','形似去掉中横的 6'],
+  ['H','bcefg'  ,'up',''],
+  ['I','acg'    ,'low','小写 i 形:a 作点,c g 作下方竖画'],
+  ['J','bcde'   ,'up',''],
+  ['K',null     ,'imp','含斜线笔画,无法表示'],
+  ['L','def'    ,'up',''],
+  ['M',null     ,'imp','含斜线笔画,无法表示'],
+  ['N','ceg'    ,'low','以小写 n 形显示'],
+  ['O','cdeg'   ,'low','以小写 o 形显示'],
+  ['P','abefg'  ,'up',''],
+  ['Q','abcfg'  ,'up','无底横,与 9 区分'],
+  ['R','eg'     ,'low','以小写 r 形显示'],
+  ['S','acdfg'  ,'same','与 5 同形'],
+  ['T','defg'   ,'low','以小写 t 形显示'],
+  ['U','bcdef'  ,'up',''],
+  ['V',null     ,'imp','斜线无法呈现;借 U 形难以区分'],
+  ['W',null     ,'imp','含斜线笔画,无法表示'],
+  ['X',null     ,'imp','交叉斜线无法表示'],
+  ['Y','bcdfg'  ,'low','以小写 y 形显示(比 9 少一顶横)'],
+  ['Z','abdeg'  ,'same','与 2 同形'],
+];
+const FALLBACK = ['_','d','fb','所有无法表示的字符统一显示此字形'];
+
+const TAGNAME = {num:'数字', up:'大写形', low:'小写形',
+                 same:'与数字同形', imp:'不可表示 → _', fb:'兜底字形'};
+
+function cellHtml([ch, segs, cat, note]) {
+  const imp = !segs;
+  const mask = imp ? 0x08 : segs.split('').reduce((m, s) => m | BIT[s], 0);
+  const hex = '0x' + mask.toString(16).toUpperCase().padStart(2, '0');
+  const segStr = imp ? 'd' : segs.split('').join(' ');
+  const label = imp ? `${ch} <span class="arr">→</span> _` : ch;
+  return `<div class="cell ${cat}">${digitSvg(mask)}
+    <div class="ch">${label}</div>
+    <div class="meta">${hex} &nbsp;·&nbsp; ${segStr}</div>
+    <span class="tag ${cat}">${TAGNAME[cat]}</span>
+    ${note ? `<div class="note">${note}</div>` : ''}</div>`;
+}
+
+document.getElementById('segDiagram').innerHTML = diagramSvg();
+document.getElementById('grid').innerHTML =
+  FONT.map(cellHtml).join('') + cellHtml(FALLBACK);
+</script>
+</body>
+</html>

@@ -416,6 +416,11 @@
               <FileType>1</FileType>
               <FilePath>.\timeslice.c</FilePath>
             </File>
+            <File>
+              <FileName>display.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\display.c</FilePath>
+            </File>
           </Files>
         </Group>
       </Groups>

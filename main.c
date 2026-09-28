@@ -8,6 +8,7 @@
 #include "ht1621.h"
 #include "buttons.h"
 #include "timeslice.h"
+#include "display.h"
 
 /*
  * ptcg-counter-v0p1 application firmware (business logic TBD).
@@ -47,23 +48,38 @@ void main(void)
     VLCD_SetByVccMv(vcc_mv);     /* one-shot VLCD bias for this VCC */
 
     HT1621_SysInit();            /* SYS_EN + RC_256K: LCD / TONE base */
+    HT1621_LcdOn();              /* BIAS 1/3 4COM + LCD_ON            */
+
+    /* self-test display: "8.8.8" for 1s, then blank (LCD stays on) */
+    g_disp_buf[0] = DISP_EN | 8;
+    g_disp_buf[1] = DISP_EN | DISP_DP | 8;
+    g_disp_buf[2] = DISP_EN | DISP_DP | 8;
+    Display_Render();
 
     {   /* boot report: the WKT calibration actually in use */
         unsigned int data fwt_rep = g_fwt_hz;
-        unsigned int data cnt_rep = g_wkt_reload + 1u;   /* ticks/slice */
+        unsigned int data cnt_rep = g_wkt_reload + 1u;
         printf("wkt fwt=%u cnt=%u\r\n", fwt_rep, cnt_rep);
-        DelayMs(1);              /* stop bit must get out before STOP   */
     }
+
+    DelayMs(1000);               /* 1s of "8.8.8"; also drains the UART */
+    g_disp_buf[0] = g_disp_buf[1] = g_disp_buf[2] = 0;
+    Display_Render();            /* end of self-test: dark panel        */
 
     Timeslice_Init();            /* WKT: 20ms slices start here */
 
-    /* Demo of the slice loop: one UART line per 50 slices (~1s) proves
-       the STOP/WKT cadence on a terminal. Line is ~10 chars at 9600
-       baud = ~10ms of the 20ms slice - keep printf out of the release
-       build (see dev-notes/firmware-conventions.md). */
+    g_disp_buf[0] = DISP_EN | 0; /* business idle display: "  0"       */
+    Display_Render();
+
+    /* Slice-mechanism demo: every 50 slices (~1s) advance the charset
+       test one step - the 36 glyphs cycle three at a time (012, 345,
+       ... , XYZ) - and print one UART line to cross-check the cadence.
+       Keep printf out of the release build (see dev-notes/
+       firmware-conventions.md). */
     {
-        unsigned int data n = 0;         /* slices completed        */
+        unsigned int data n = 0;         /* slices completed           */
         unsigned char data div50 = 0;
+        unsigned char data base = 0;     /* first code of the triple   */
 
         while (1)
         {
@@ -74,6 +90,14 @@ void main(void)
                 printf("ts %u\r\n", n);
                 DelayMs(1);              /* stop bit must get out
                                             before STOP kills UART   */
+
+                g_disp_buf[2] = DISP_EN | base;        /* hundreds */
+                g_disp_buf[1] = DISP_EN | (base + 1);  /* tens     */
+                g_disp_buf[0] = DISP_EN | (base + 2);  /* units    */
+                Display_Render();
+                base += 3;
+                if (base >= 36)
+                    base = 0;
             }
 
             Slice_SleepOneTick();

@@ -11,6 +11,7 @@
 | uart.c/.h | UART1 初始化与字节发送 |
 | common.c/.h | 延时、`putchar`、`SleepForever` |
 | timeslice.c/.h | 20ms 帧循环：WKT 唤醒、`g_cycle`、`Slice_SleepOneTick()`；`Timeslice_EarlyInit()`（main 第二句）快照 idata F8/F9 出厂 WKT 频率并算好重装值。STC8H 的 WKT 无中断向量，"醒来"即 tick——醒着时间不走，超片即掉帧（无积压），片内工作必须远短于 20ms |
+| display.c/.h | 3 位段码显示：`g_disp_buf[3]`（个/十/百，bit7=EN bit6=DP bit0-5=字符码 0~35）+ code 区查表 `g_7segtab[3][36][2]`（tools/gen7segtab.py 生成，改字形/接线须重跑）+ `Display_Render()` 全面覆写渲染。字形严格按 dev-notes/7seg-charset.html |
 
 端口模式/上拉配置一律用掩码操作（`|=` / `&= ~`）只动本模块的引脚位，不整写 PxM0/PxM1/PxPU；硬件级参数（主时钟 `MAIN_FOSC_HZ`、波特率 `UART_BAUDRATE`、过压阈值 `VCC_OVERVOLT_MV`）集中在 hardware-definition.h。`SleepForever()` 中对 PxM0/PxM1 的整体赋值是刻意为之（强制全部引脚回安全态），不在此例。
 
@@ -19,7 +20,7 @@
 1. `VLCD_EarlyInit()`（main 第一句，捕获 idata 出厂 BGV 镜像）；`Timeslice_EarlyInit()` 紧随其后（捕获 idata F8/F9 出厂 WKT 频率并算出 WKT 重装值）；随后 UART1 初始化；
 2. **过压检查（开机第一项功能，趁 UART 刚好可以报告时立即执行）**：ADC15 自测 VCC，VCC ≥ `VCC_OVERVOLT_MV` → `SleepForever()`（IO 置安全态 + 全中断关闭 + 永久掉电 + 死循环兜底），此后不再复查过压；
 3. 其余外设初始化（按键、HT1621 总线）；`VLCD_SetByVccMv()` 按开机 VCC 一次性设定 VLCD（含 ADC 失败 60% 下限兜底；`VLCD_Reapply()` 为"重测 VCC 再设定"的无参变种，供连续调节用，内含过压检查为无）；
-4. `HT1621_SysInit()`：SYS_EN + RC_256K（LCD/蜂鸣的公共前置）；
+4. `HT1621_SysInit()`：SYS_EN + RC_256K（LCD/蜂鸣的公共前置）；`HT1621_LcdOn()`（BIAS+LCD_ON）后进入自检显示：8.8.8 亮 1s（DelayMs，线性延时）→ 缓冲清零渲染（LCD 保持 ON）；
 5. `Timeslice_Init()`（IRCDB + WKT 20ms）后进入帧循环主循环：每片 `工作 → Slice_SleepOneTick()`（STOP 等唤醒，醒来 g_cycle++）。全固件无中断（EA=0），详见 [business-logic-log.md](business-logic-log.md)。
 
 bring-up 阶段的诊断版 main（DATA 浮空测试、蜂鸣、全段点亮、READ 转储、alive 打印）存档于 [main-debug-c.txt](main-debug-c.txt)，不再参与编译。
@@ -50,7 +51,7 @@ PWMA 寄存器是 XFR 映射，访问前需 `P_SW2 |= 0x80`（EAXFR）；`PWMA_C
 
 ## HT1621 时序
 
-位敲半周期不用软件延时循环，直接由 NOP 构成：`HT1621_BitDelay()` 函数体内 `NOP40(),NOP8()`（STC8H.H 提供逗号链式 NOP1()..NOP40() 家族，不够长就按同样风格拼接），＝ 48 周期 = 8µs @6MHz 1T。**包成函数而非宏**：48 字节延迟体只存在一份，9 处调用各付 2 字节 LCALL（宏内联要 432 字节，函数版共 ~67 字节）；LCALL/RET 约 6 周期使半周期 ~9.5µs，RD 时钟 ≈52kHz，满足 WR ≤150kHz、RD ≤75kHz 的 datasheet 限制。读时 P1.7 切高阻、读完恢复推挽；数据位序（mode ID / 地址 MSB-first，数据 nibble LSB-first）见 ht1621.c 注释。
+位敲半周期不用软件延时循环，直接由 NOP 构成：`HT1621_BitDelay()` 函数体内 `NOP40(),NOP8()`（STC8H.H 提供逗号链式 NOP1()..NOP40() 家族，不够长就按同样风格拼接），＝ 48 周期 = 8µs @6MHz 1T。**包成函数而非宏**：48 字节延迟体只存在一份，9 处调用各付 2 字节 LCALL（宏内联要 432 字节，函数版共 ~67 字节）；LCALL/RET 约 6 周期使半周期 ~9.5µs，RD 时钟 ≈52kHz，满足 WR ≤150kHz、RD ≤75kHz 的 datasheet 限制。读时 P1.7 切高阻、读完恢复推挽。**位序（台架实锤，2026-09-28）：mode ID / 地址 / 命令码 / 数据 nibble 一律 MSB-first（数据 D3..D0）**——手册时序图把数据标成 "D0 D1 D2 D3" 是著名陷阱，勿信；诊断图案必须含非对称数据才能验位序（全 0x0F 验不出来）。
 
 ## 烧录注意
 
