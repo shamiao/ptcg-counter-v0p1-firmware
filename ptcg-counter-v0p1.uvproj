@@ -411,6 +411,11 @@
               <FileType>1</FileType>
               <FilePath>.\common.c</FilePath>
             </File>
+            <File>
+              <FileName>timeslice.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\timeslice.c</FilePath>
+            </File>
           </Files>
         </Group>
       </Groups>

@@ -10,16 +10,17 @@
 | buttons.c/.h | 按键初始化与 `Buttons_Read()`（位掩码：bit0=KEY_MAIN、bit1..5=KEY1..5、bit6=KEY6） |
 | uart.c/.h | UART1 初始化与字节发送 |
 | common.c/.h | 延时、`putchar`、`SleepForever` |
+| timeslice.c/.h | 20ms 帧循环：WKT 唤醒、`g_cycle`、`Slice_SleepOneTick()`；`Timeslice_EarlyInit()`（main 第二句）快照 idata F8/F9 出厂 WKT 频率并算好重装值。STC8H 的 WKT 无中断向量，"醒来"即 tick——醒着时间不走，超片即掉帧（无积压），片内工作必须远短于 20ms |
 
 端口模式/上拉配置一律用掩码操作（`|=` / `&= ~`）只动本模块的引脚位，不整写 PxM0/PxM1/PxPU；硬件级参数（主时钟 `MAIN_FOSC_HZ`、波特率 `UART_BAUDRATE`、过压阈值 `VCC_OVERVOLT_MV`）集中在 hardware-definition.h。`SleepForever()` 中对 PxM0/PxM1 的整体赋值是刻意为之（强制全部引脚回安全态），不在此例。
 
 ## 开机流程（当前 main.c 骨架）
 
-1. `VLCD_EarlyInit()`（main 第一句，捕获 idata 出厂 BGV 镜像）；随后 UART1 初始化；
+1. `VLCD_EarlyInit()`（main 第一句，捕获 idata 出厂 BGV 镜像）；`Timeslice_EarlyInit()` 紧随其后（捕获 idata F8/F9 出厂 WKT 频率并算出 WKT 重装值）；随后 UART1 初始化；
 2. **过压检查（开机第一项功能，趁 UART 刚好可以报告时立即执行）**：ADC15 自测 VCC，VCC ≥ `VCC_OVERVOLT_MV` → `SleepForever()`（IO 置安全态 + 全中断关闭 + 永久掉电 + 死循环兜底），此后不再复查过压；
 3. 其余外设初始化（按键、HT1621 总线）；`VLCD_SetByVccMv()` 按开机 VCC 一次性设定 VLCD（含 ADC 失败 60% 下限兜底；`VLCD_Reapply()` 为"重测 VCC 再设定"的无参变种，供连续调节用，内含过压检查为无）；
 4. `HT1621_SysInit()`：SYS_EN + RC_256K（LCD/蜂鸣的公共前置）；
-5. 空 `while(1)`：业务逻辑（段码显示、按键扫描去抖、计数状态机、低功耗）待实现。
+5. `Timeslice_Init()`（IRCDB + WKT 20ms）后进入帧循环主循环：每片 `工作 → Slice_SleepOneTick()`（STOP 等唤醒，醒来 g_cycle++）。全固件无中断（EA=0），详见 [business-logic-log.md](business-logic-log.md)。
 
 bring-up 阶段的诊断版 main（DATA 浮空测试、蜂鸣、全段点亮、READ 转储、alive 打印）存档于 [main-debug-c.txt](main-debug-c.txt)，不再参与编译。
 
@@ -37,7 +38,7 @@ bring-up 阶段的诊断版 main（DATA 浮空测试、蜂鸣、全段点亮、R
 
 ## VCC 自测量与 BGV
 
-ADC15 固定接内部 1.19V 带隙，VREF+ = VCC，故 `N = BGV/VCC × 1024`，`VCC_mV = BGV_mV × 1024 / N`（手册 10.5 节反推法）。BGV 出厂值在 **idata 0xEF/0xF0 镜像（大端 mV）**（手册 §7.3.12；0xF1–0xF7 为 32K IRC 校准、0xF8/0xF9 为 24M IRC 校准）。STARTUP.A51 `IDATALEN=0x80` 只清 0x00–0x7F，镜像存活；固件在 `main()` 第一句 `VLCD_EarlyInit()`（vlcd.c）把 0xEF/0xF0 两字节快照到 xdata，防栈增长触碰高 idata。数值不合理（超出 1000–1400mV）时回退标称 1190mV。
+ADC15 固定接内部 1.19V 带隙，VREF+ = VCC，故 `N = BGV/VCC × 1024`，`VCC_mV = BGV_mV × 1024 / N`（手册 10.5 节反推法）。出厂校准镜像在高 idata（**完整地图在 hardware-definition.h**：0xEF/0xF0 BGV 大端 mV、0xF8/0xF9 WKT 时钟大端 Hz 标称 32768=8000H 出处 7.11.1+10.4.3、0xF1~0xF7 手册未描述）。STARTUP.A51 `IDATALEN=0x80` 只清 0x00–0x7F，镜像存活；固件在 `main()` 开头用 `VLCD_EarlyInit()` / `Timeslice_EarlyInit()` 抢在栈增长前快照到 xdata。BGV 数值不合理（超出 1000–1400mV）时回退标称 1190mV。
 
 ## P1.1 软件采样自检的分辨力
 

@@ -35,6 +35,24 @@ P5.4 NC
 */
 
 /**
+Factory calibration mirror in high idata (0xEF..0xF9)
+====================
+Listed bytes are the ones with a manual source; 0xF1..0xF7 are
+undocumented. All big-endian. Capture-first discipline: STARTUP.A51
+(IDATALEN=0x80) clears only 0x00..0x7F, so the mirror survives into
+main() until stack growth reaches it - see VLCD_EarlyInit() and
+Timeslice_EarlyInit().
+
+| idata   | content                     | nominal | source                     |
+|---------|-----------------------------|---------|----------------------------|
+| 0xEF/F0 | BGV, mV (bandgap)           | 1190    | 10.4.2 + reverse-VCC demo  |
+| 0xF8/F9 | WKT clock, Hz               | 32768   | 7.11.1 + 10.4.3            |
+
+The xdata CHIPID area (0xFDE0..) documents the same words but reads as
+fixed fill on this chip (BGV bring-up finding) - always use the mirror.
+*/
+
+/**
 HT1621 to LCD pinout
 ====================
 COM0~COM3 and SEG0~SEG5 are used

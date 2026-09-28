@@ -4,11 +4,12 @@
 #include "common.h"
 #include "vlcd.h"
 
-/* ---- factory BGV location (manual 7.3.12) ----
- * The factory calibration data mirrors into idata at reset: BGV (mV,
- * BIG-ENDIAN: 0xEF = high byte, 0xF0 = low byte) at 0xEF/0xF0, the 32K
- * IRC trim at 0xF1-0xF7, the 24MHz IRC trim at 0xF8/0xF9 - the official
- * ADC "reverse VCC" demo reads exactly there: BGV = (int idata *)0xef;
+/* ---- factory BGV (bandgap) word ----
+ * At reset the factory trims mirror into high idata; the chip-level map
+ * lives in hardware-definition.h. This module consumes only the BGV
+ * (mV, BIG-ENDIAN: 0xEF = high byte, 0xF0 = low byte) - the anchor of
+ * the ADC15 reverse-VCC measurement; the official demo reads exactly
+ * there: BGV = (int idata *)0xef;
  * Keil STARTUP.A51 (IDATALEN=0x80) clears only 0x00-0x7F, so the mirror
  * survives into main(); VLCD_EarlyInit() copies the BGV bytes out as
  * the very first act of main(), before stack growth could ever reach
@@ -46,7 +47,7 @@ unsigned int ReadBGVmV(void)
     return bgv;
 }
 
-/* ---- VCC measurement via ADC (datasheet ch.10.5 "反推VCC" method) ----
+/* ---- VCC measurement via ADC (reverse-VCC method, datasheet ch.10.5) ----
  * ADC15 is internally fixed to the ~1.19V bandgap (BGV).
  * VREF+ = VCC, 10-bit ADC on STC8H1K08:
  *     N = BGV/VCC * 1024   =>   VCC_mV = BGV_mV * 1024 / N           */
@@ -104,10 +105,14 @@ unsigned int VCC_MeasureMv(void)
  * DC model:   VLCD = VCC * CCR/120 - 63mV
  * Control law (coarse on purpose - the panel tolerates it), applied
  * ONCE at boot; continuous regulation is a later, separate design:
- *   VCC <= 3.263V : no PWM - P1.1 push-pull high (best effort:
- *                   VLCD = VCC - 63mV, target unreachable)
- *   VCC  > 3.263V : CCR = 120*(3200+63)mV/VCC, rounded, hard-floored
- *                  at 60% duty (3.3V->99%, 4.5V->72%, 5.4V->60%)
+ *   VCC <= 3.6V   : no PWM - P1.1 push-pull high; VLCD = VCC - 63mV,
+ *                   up to ~3.54V (panel-tolerated). The dead band is
+ *                   deliberately far above the 3.2V target so the pin
+ *                   never toggles between PWM and GPIO modes around
+ *                   the regulation point - that chatter would show
+ *                   as display flicker.
+ *   VCC  > 3.6V   : CCR = 120*(3200+63)mV/VCC, rounded, hard-floored
+ *                  at 60% duty (3.6V->91%, 4.5V->72%, >=5.44V->60%)
  *   ADC failed    : the 60% duty floor
  *   VCC >= 5.5V   : gated by the boot overvoltage check in main()
  *                   (VCC_OVERVOLT_MV): print the fault, then jump to
@@ -117,7 +122,7 @@ unsigned int VCC_MeasureMv(void)
 #define PWM_PERIOD        VLCD_PWM_PERIOD   /* ARR+1, PWM clock counts  */
 #define VLCD_REG_MV       3200UL  /* regulate DC VLCD to ~3.2V          */
 #define VLCD_IR_DROP_MV   63UL    /* 35uA load x 1.8kohm series R       */
-#define VCC_FULL_DUTY_MV  (VLCD_REG_MV + VLCD_IR_DROP_MV) /* 100% zone  */
+#define PWM_ENGAGE_MV     3600UL  /* PWM engages only above this VCC    */
 #define PWM_CCR_FLOOR     ((PWM_PERIOD * 3UL) / 5UL)  /* 60% floor = 72 */
 
 /* PWM1N on P1.1, 50kHz; ccr = high counts (duty = ccr/PWM_PERIOD) */
@@ -167,7 +172,7 @@ unsigned int VLCD_SetByVccMv(unsigned int vcc_mv)
         VLCD_PWM_Init(PWM_CCR_FLOOR);
         return PWM_CCR_FLOOR;
     }
-    if (vcc_mv <= VCC_FULL_DUTY_MV)        /* target unreachable: max out */
+    if (vcc_mv <= PWM_ENGAGE_MV)            /* dead band: pin high   */
     {
         VLCD_PWM_Off(1);                   /* P1.1 push-pull high = 100% */
         return 0;

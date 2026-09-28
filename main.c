@@ -1,4 +1,5 @@
 #include <stc8h.h>
+#include <stdio.h>
 
 #include "hardware-definition.h"
 #include "common.h"
@@ -6,6 +7,7 @@
 #include "vlcd.h"
 #include "ht1621.h"
 #include "buttons.h"
+#include "timeslice.h"
 
 /*
  * ptcg-counter-v0p1 application firmware (business logic TBD).
@@ -23,6 +25,8 @@ void main(void)
 
     VLCD_EarlyInit();            /* FIRST: capture the idata factory
                                     BGV mirror before anything else */
+    Timeslice_EarlyInit();       /* capture the idata WKT calibration
+                                    mirror right behind it            */
 
     P5M0 &= ~0x10;               /* P5.4 (NC) -> high-Z input (masked) */
     P5M1 |= 0x10;
@@ -44,9 +48,35 @@ void main(void)
 
     HT1621_SysInit();            /* SYS_EN + RC_256K: LCD / TONE base */
 
-    /* Business logic goes here: segment display, key scanning and
-       debounce, counting state machine, low-power idle. */
-    while (1)
+    {   /* boot report: the WKT calibration actually in use */
+        unsigned int data fwt_rep = g_fwt_hz;
+        unsigned int data cnt_rep = g_wkt_reload + 1u;   /* ticks/slice */
+        printf("wkt fwt=%u cnt=%u\r\n", fwt_rep, cnt_rep);
+        DelayMs(1);              /* stop bit must get out before STOP   */
+    }
+
+    Timeslice_Init();            /* WKT: 20ms slices start here */
+
+    /* Demo of the slice loop: one UART line per 50 slices (~1s) proves
+       the STOP/WKT cadence on a terminal. Line is ~10 chars at 9600
+       baud = ~10ms of the 20ms slice - keep printf out of the release
+       build (see dev-notes/firmware-conventions.md). */
     {
+        unsigned int data n = 0;         /* slices completed        */
+        unsigned char data div50 = 0;
+
+        while (1)
+        {
+            n++;
+            if (++div50 >= 50)
+            {
+                div50 = 0;
+                printf("ts %u\r\n", n);
+                DelayMs(1);              /* stop bit must get out
+                                            before STOP kills UART   */
+            }
+
+            Slice_SleepOneTick();
+        }
     }
 }
