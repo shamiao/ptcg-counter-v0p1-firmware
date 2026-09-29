@@ -57,6 +57,26 @@ unsigned char Buttons_Read(void)
 static unsigned char data key_fsm = KFSM_S0;
 static unsigned char data k0_armed = 0;   /* KEY0 release tracker   */
 
+/* mode generation for the KEY0-release boundary rule (see buttons.h):
+ * bumped on every mode switch; a release fires only inside the
+ * generation that accepted its press. u8 wrap needs 256 switches
+ * within one press - unreachable.                                   */
+static unsigned char data k0_epoch = 0;
+static unsigned char data k0_bound_epoch = 0;
+
+void Buttons_NotifyModeSwitch(void)
+{
+    k0_epoch++;
+}
+
+void Buttons_Key0Adopt(void)
+{
+    if (k0_armed)
+        k0_bound_epoch = k0_epoch;   /* the deliberate exception: the
+                                        pending release becomes a
+                                        member of the current mode   */
+}
+
 unsigned char Buttons_Scan(void)
 {
     unsigned char mask = Buttons_Read();
@@ -76,7 +96,10 @@ unsigned char Buttons_Scan(void)
     {
         key_fsm = KFSM_S1;
         if (mask == BUTTON_KEY_MAIN)
+        {
             k0_armed = 1;           /* arm the release tracker          */
+            k0_bound_epoch = k0_epoch;   /* bind to this generation    */
+        }
         return mask;                /* accepted: fire the key logic     */
     }
     return 0;   /* S1 same key held (no repeat); S2 drained to one key
@@ -103,7 +126,10 @@ unsigned char Buttons_Key0Released(void)
     if (k0_armed && (P3 & 0x04))    /* P3.2 = KEY0, active low          */
     {
         k0_armed = 0;
-        return 1;
+        /* boundary rule: report the release only inside the mode
+         * generation that accepted the press; across a switch (even
+         * out-and-back) it is swallowed here, silently                */
+        return (k0_bound_epoch == k0_epoch) ? 1 : 0;
     }
     return 0;
 }

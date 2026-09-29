@@ -62,10 +62,12 @@ void main(void)
     g_disp_buf[2] = DISP_EN | DISP_DP | 8;
     Display_Render();
 
-    {   /* boot report: the WKT calibration actually in use */
+    {   /* boot report: identity + the calibrations actually in use   */
         unsigned int data fwt_rep = g_fwt_hz;
         unsigned int data cnt_rep = g_wkt_reload + 1u;
-        printf("wkt fwt=%u cnt=%u\r\n", fwt_rep, cnt_rep);
+        unsigned int data ref_rep = ReadBGVmV();
+        printf("PTCGCounter-hwv0.1\r\n");
+        printf("fwt=%u timeslicecnt=%u ref=%u\r\n", fwt_rep, cnt_rep, ref_rep);
     }
 
     DelayMs(500);                /* 0.5s of "8.8.8"; drains the UART   */
@@ -82,31 +84,17 @@ void main(void)
                                      mode entry chirps                  */
 
     /* Frame loop: collect the key events of this slice, hand them to
-       the mode dispatcher, print the 5s heartbeat as the slice-cadence
-       check, sleep to the next WKT wake. All prints are dev-phase only
-       (see dev-notes/firmware-conventions.md). */
+       the mode dispatcher, sleep to the next WKT wake. No heartbeat
+       print any more - the idle-minute lines in app.c double as the
+       liveness trace. */
+    while (1)
     {
-        unsigned int data n = 0;         /* slices completed           */
-        unsigned char data div250 = 0;
+        unsigned char data ev = Buttons_Scan();
+        if (Buttons_Key0Released())
+            ev |= KEY_EV_K0UP;        /* bundle the release event  */
 
-        while (1)
-        {
-            unsigned char data ev = Buttons_Scan();
-            if (Buttons_Key0Released())
-                ev |= KEY_EV_K0UP;        /* bundle the release event  */
+        App_Slice(ev);
 
-            App_Slice(ev);
-
-            n++;
-            if (++div250 >= 250)          /* 250 slices = 5s           */
-            {
-                div250 = 0;
-                printf("ts %u\r\n", n);
-                DelayMs(1);              /* stop bit must get out
-                                            before STOP kills UART   */
-            }
-
-            Slice_SleepOneTick();
-        }
+        Slice_SleepOneTick();
     }
 }

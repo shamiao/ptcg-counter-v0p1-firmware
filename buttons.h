@@ -35,5 +35,23 @@ unsigned char Buttons_Key0Released(void);
 void Buttons_Key0Disarm(void);    /* swallow the pending KEY0 release
                                      event (no release will fire until
                                      the next accepted KEY0 press)    */
+void Buttons_NotifyModeSwitch(void);  /* call at EVERY app_mode change:
+                                     bumps the mode generation used by
+                                     the boundary rule below          */
+void Buttons_Key0Adopt(void);     /* THE exception hook: re-bind a
+                                     pending KEY0 release to the
+                                     CURRENT mode generation (only a
+                                     mode that deliberately calls this
+                                     may see a press from the previous
+                                     mode - the coin mode does)       */
+
+/* Boundary rule ("normalization") for the KEY0 release event: a
+ * release NEVER crosses a mode-switch boundary. The tracker binds to
+ * the mode generation that accepted the press; Buttons_Released()
+ * reports the release only if that generation is still current (a
+ * switch-out-and-back moves the generation too, so it is caught).
+ * Cross-boundary releases are swallowed silently at THIS layer - the
+ * modes never see them. Modes needing the press of their predecessor
+ * must explicitly Buttons_Key0Adopt() it in their enter hook.       */
 
 #endif

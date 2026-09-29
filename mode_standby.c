@@ -142,13 +142,11 @@ static void Standby_WakeComplete(void)
 {
     unsigned int vcc = VCC_MeasureMv();
 
-    printf("vcc %umV\r\n", vcc); /* every wake (boot and standby)
-                                     reports the rail; the resume work
-                                     below drains the line long before
-                                     any STOP can cut a stop bit      */
+    /* every wake (boot and standby) reports the rail with its verdict;
+     * the FORCOFF branch prints before any hardware work - it halts  */
     if (vcc < VCC_HALT_MV)       /* dead battery: refuse to boot       */
     {
-        printf("VCC %umV < %lumV, halt\r\n", vcc, VCC_HALT_MV);
+        printf("vcc=%u FORCOFF\r\n", vcc);
         SleepForever();          /* no reason to ever wake again       */
     }
 
@@ -156,12 +154,14 @@ static void Standby_WakeComplete(void)
 
     if (vcc < VCC_LOWBAT_MV)     /* low battery: warn, then go on      */
     {
+        printf("vcc=%u LOBAT\r\n", vcc);
         sb_phase = SBS_LOWBAT;
         sb_frame = 0;
         sb_timer = SB_LB_FRAME;
         Sb_LowbatFrame(0);       /* "LO.B"                             */
         return;
     }
+    printf("vcc=%u NORM\r\n", vcc);
     App_SwitchTo(APP_MODE_COUNT);
 }
 

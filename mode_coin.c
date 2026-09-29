@@ -1,4 +1,5 @@
 #include "ht1621.h"
+#include "buttons.h"
 #include "display.h"
 #include "app.h"
 #include "mode_coin.h"
@@ -23,9 +24,14 @@
  * a vigorous shake. Tunable via COIN_SHAKE_SLICES.
  *
  * Key handling inside this mode: while shaking, ONLY the KEY0 release
- * matters (it stops the shake and locks the face). After that, every
- * key event is ignored for the rest of the mode - the result cannot
- * be re-rolled and the counter cannot be nudged mid-ceremony.      */
+ * matters (it stops the shake and locks the face). During the result
+ * animation, a fresh KEY0 press re-rolls the coin ONLY in the solid-
+ * display phase (the 5s hold): the animation is aborted, one short
+ * beep plays, and the shake restarts. In the blink phases and the
+ * final blank a KEY0 press is a deliberate no-op (release and press
+ * again during the hold). The re-roll press must be a clean accepted
+ * one: a press merged into a multi-press produces no event at all.
+ * Every other key event is ignored in this mode.                    */
 
 #define COIN_SHAKE_SLICES   4     /* 80ms per face                      */
 #define COIN_UP_BLINK       15    /* 300ms blink phase - UP is dense    */
@@ -80,13 +86,24 @@ static unsigned char Coin_BlinkLen(void)
     return (coin_face == 0) ? COIN_UP_BLINK : COIN_DON_BLINK;
 }
 
-void Mode_Coin_Enter(void)
+/* (re)start the shake: deterministic face, fresh period timer - the
+ * entry hook and the re-roll path share this                         */
+static void Coin_StartShake(void)
 {
-    coin_face = 0;                 /* deterministic start; the result
-                                      comes from the release timing   */
+    coin_face = 0;               /* deterministic start; the result
+                                    comes from the release timing     */
     coin_phase = CP_SHAKE;
     phase_timer = COIN_SHAKE_SLICES;
     Coin_ShowFace();
+}
+
+void Mode_Coin_Enter(void)
+{
+    /* THE exception to the KEY0-release boundary rule: the entering
+     * press was accepted in the count mode (previous generation), and
+     * its release IS this mode's stop-shake event - adopt it.        */
+    Buttons_Key0Adopt();
+    Coin_StartShake();
 }
 
 void Mode_Coin_Slice(unsigned char events)
@@ -115,7 +132,20 @@ void Mode_Coin_Slice(unsigned char events)
         return;                    /* key presses mean nothing here    */
     }
 
-    /* result animation: purely time-driven from here on              */
+    /* result animation: a fresh KEY0 press re-rolls the coin, but only
+     * in the solid-display phase - during the blinks and the final
+     * blank it is a deliberate no-op. Checked before the phase timer
+     * so a press racing the last slice wins (event-first, same
+     * ordering rule as the standby window). The buzzer is off
+     * throughout HOLD_ON, so the chirp always starts clean.         */
+    if (coin_phase == CP_HOLD_ON && (events & 0x7Fu) == BUTTON_KEY_MAIN)
+    {
+        App_BeepOnce();
+        Coin_StartShake();
+        return;
+    }
+
+    /* purely time-driven from here on                                */
     if (--phase_timer != 0)
         return;
 

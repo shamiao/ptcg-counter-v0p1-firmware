@@ -22,6 +22,9 @@ void App_BootViaStandby(void);           /* cold boot: traverse the
                                             standby wake completion
                                             (power gates + resume), no
                                             chirp for the standby leg  */
+void App_BeepOnce(void);                 /* one short 2kHz beep, sliced
+                                            off (the entry-chirp
+                                            primitive, reusable)       */
 void App_BeepCancel(void);               /* drop a running entry chirp
                                             (caller owns the buzzer)  */
 

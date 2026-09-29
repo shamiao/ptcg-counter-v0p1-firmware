@@ -1,6 +1,9 @@
 #include <stc8h.h>
+#include <stdio.h>
 
 #include "ht1621.h"
+#include "common.h"
+#include "buttons.h"
 #include "app.h"
 #include "mode_count.h"
 #include "mode_coin.h"
@@ -22,12 +25,25 @@ static unsigned char data app_mode = APP_MODE_STANDBY;  /* zero-init;
 
 static unsigned char data beep_timer = 0;
 
-/* Idle watch: 1 min without any key event hands control to the
- * standby mode (deep STOP, KEY0 long-press to resume). Any accepted
- * press or KEY0-release event counts as an operation.              */
-#define APP_IDLE_SLICES  3000u  /* 60s x 50 slices                   */
+/* Idle watch: 30 min without any key event hands control to the
+ * standby mode (deep STOP, KEY0 long-press to resume) - one PTCG
+ * game length. Any accepted press or KEY0-release event counts as
+ * an operation. Two-stage counter: 30 min = 90000 slices overflows
+ * a u16 (65536 slices = ~21.8 min), so slices accumulate into an
+ * u8 minute counter.                                                    */
+#define APP_IDLE_MIN_SLICES  3000u  /* one minute of slices          */
+#define APP_IDLE_MINUTES     30     /* minutes -> standby            */
 
 static unsigned int data idle_slices = 0;
+static unsigned char data idle_minutes = 0;
+
+void App_BeepOnce(void)
+{
+    HT1621_Buzzer2kOn();         /* on now; the slice countdown in
+                                    App_Slice switches it off - the
+                                    primitive never busy-waits       */
+    beep_timer = APP_BEEP_SLICES;
+}
 
 void App_BeepCancel(void)
 {
@@ -38,11 +54,10 @@ void App_BeepCancel(void)
 void App_SwitchTo(unsigned char mode)
 {
     app_mode = mode;
+    Buttons_NotifyModeSwitch();   /* KEY0-release boundary rule: every
+                                     mode change moves the generation */
     if (mode != APP_MODE_STANDBY)   /* no chirp into deep sleep       */
-    {
-        HT1621_Buzzer2kOn();    /* entry chirp on; sliced off later  */
-        beep_timer = APP_BEEP_SLICES;
-    }
+        App_BeepOnce();             /* entry chirp                    */
     switch (mode)
     {
     case APP_MODE_COUNT:
@@ -60,6 +75,7 @@ void App_SwitchTo(unsigned char mode)
 void App_BootViaStandby(void)
 {
     app_mode = APP_MODE_STANDBY;    /* no chirp: house-keeping state  */
+    Buttons_NotifyModeSwitch();     /* keep the every-change invariant */
     Mode_Standby_Boot();            /* straight into the wake end:
                                        power gates, resume, then on
                                        to the count mode             */
@@ -73,12 +89,29 @@ void App_Slice(unsigned char events)
     if (app_mode != APP_MODE_STANDBY)
     {
         if (events)
+        {
             idle_slices = 0;    /* any key event is an operation     */
-        else if (++idle_slices >= APP_IDLE_SLICES)
+            idle_minutes = 0;
+        }
+        else if (++idle_slices >= APP_IDLE_MIN_SLICES)
         {
             idle_slices = 0;
-            App_SwitchTo(APP_MODE_STANDBY);   /* arms the deep stop */
-            return;             /* standby owns the machine now     */
+            if (++idle_minutes >= APP_IDLE_MINUTES)
+            {
+                unsigned int data m_rep = idle_minutes;
+                idle_minutes = 0;
+                printf("idle=%umin STANDBY\r\n", m_rep);
+                DelayMs(1);     /* stop bit out before STOP          */
+                App_SwitchTo(APP_MODE_STANDBY);  /* arms the deep
+                                                     stop             */
+                return;         /* standby owns the machine now     */
+            }
+            {   /* idle trace, one line per idle minute; doubles as
+                   the liveness trace now that ts is gone           */
+                unsigned int data m_rep = idle_minutes;
+                printf("idle=%umin\r\n", m_rep);
+                DelayMs(1);     /* stop bit out before STOP          */
+            }
         }
     }
 
