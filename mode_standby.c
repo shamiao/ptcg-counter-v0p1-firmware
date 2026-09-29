@@ -1,5 +1,8 @@
 #include <stc8h.h>
+#include <stdio.h>
 
+#include "hardware-definition.h"
+#include "common.h"
 #include "buttons.h"
 #include "display.h"
 #include "ht1621.h"
@@ -34,11 +37,17 @@
 #define SBS_AWAIT  1
 #define SBS_REARM  2     /* one-slice grace between a detected release
                             and the INT0 re-arm (see below)          */
+#define SBS_LOWBAT 3     /* low-battery warning animation            */
 
 #define SB_AWAIT_SLICES  50      /* 1s long-press window                */
 
+/* "LO.B" / "ATT" x3 (0.5s each) + a final 0.5s blank                 */
+#define SB_LB_FRAMES     7
+#define SB_LB_FRAME      25      /* 0.5s per frame                      */
+
 static unsigned char data sb_phase = SBS_SLEEP;
 static unsigned char data sb_timer = 0;
+static unsigned char data sb_frame = 0;   /* lowbat frame index        */
 
 /* empty vector handler: the wake only needs to RETI; everything else
  * happens in Mode_Standby_Slice on the next frame-loop pass          */
@@ -100,11 +109,75 @@ static void Standby_ResumeInit(void)
     Display_Render();            /* SEG RAM cleared                     */
 }
 
+/* one frame of the low-battery warning: even = "LO.B" (the tens DP),
+ * odd = "ATT", the last frame is blank                             */
+static void Sb_LowbatFrame(unsigned char f)
+{
+    if (f >= SB_LB_FRAMES - 1)
+    {
+        g_disp_buf[0] = g_disp_buf[1] = g_disp_buf[2] = 0;
+    }
+    else if (f & 1)
+    {
+        g_disp_buf[2] = DISP_EN | DISP_GLYPH('A');
+        g_disp_buf[1] = DISP_EN | DISP_GLYPH('T');
+        g_disp_buf[0] = DISP_EN | DISP_GLYPH('T');
+    }
+    else
+    {
+        g_disp_buf[2] = DISP_EN | DISP_GLYPH('L');
+        g_disp_buf[1] = DISP_EN | DISP_DP | DISP_GLYPH('O');
+        g_disp_buf[0] = DISP_EN | DISP_GLYPH('B');
+    }
+    Display_Render();
+}
+
+/* The successful end of every wake (long-press held, or the cold
+ * boot formality): the power gates first - the halt path needs no
+ * hardware and the UART is alive straight out of STOP - then the
+ * full resume, and a low battery adds the warning animation before
+ * the count mode takes over. One VCC reading serves both gates
+ * (the VLCD policy inside ResumeInit takes its own fresh read).   */
+static void Standby_WakeComplete(void)
+{
+    unsigned int vcc = VCC_MeasureMv();
+
+    printf("vcc %umV\r\n", vcc); /* every wake (boot and standby)
+                                     reports the rail; the resume work
+                                     below drains the line long before
+                                     any STOP can cut a stop bit      */
+    if (vcc < VCC_HALT_MV)       /* dead battery: refuse to boot       */
+    {
+        printf("VCC %umV < %lumV, halt\r\n", vcc, VCC_HALT_MV);
+        SleepForever();          /* no reason to ever wake again       */
+    }
+
+    Standby_ResumeInit();
+
+    if (vcc < VCC_LOWBAT_MV)     /* low battery: warn, then go on      */
+    {
+        sb_phase = SBS_LOWBAT;
+        sb_frame = 0;
+        sb_timer = SB_LB_FRAME;
+        Sb_LowbatFrame(0);       /* "LO.B"                             */
+        return;
+    }
+    App_SwitchTo(APP_MODE_COUNT);
+}
+
 void Mode_Standby_Enter(void)
 {
     Standby_PowerDown();
     sb_phase = SBS_SLEEP;
     Standby_ArmDeepStop();       /* the loop's next STOP becomes deep   */
+}
+
+/* cold boot variant: straight into the wake completion - no deep
+ * stop, no long-press window (no release detection), and no release
+ * masking (there is no long-press handshake pending at boot)       */
+void Mode_Standby_Boot(void)
+{
+    Standby_WakeComplete();
 }
 
 void Mode_Standby_Slice(unsigned char events)
@@ -141,12 +214,34 @@ void Mode_Standby_Slice(unsigned char events)
         return;
     }
 
-    /* AWAIT: the 1s long-press window. The release check comes first
-     * so a release racing the window end counts as an accidental
-     * touch (a full second was not held).                            */
-    if (events & KEY_EV_K0UP)
+    if (sb_phase == SBS_LOWBAT)
     {
-        sb_phase = SBS_REARM;    /* accidental touch: one grace slice,
+        /* "LO.B"/"ATT" warning: purely time-driven, keys ignored     */
+        if (--sb_timer != 0)
+            return;
+        if (++sb_frame >= SB_LB_FRAMES)
+        {
+            App_SwitchTo(APP_MODE_COUNT);   /* warning done            */
+            return;
+        }
+        sb_timer = SB_LB_FRAME;
+        Sb_LowbatFrame(sb_frame);
+        return;
+    }
+
+    /* AWAIT: the 1s long-press window. KEY0 is tested at the PIN
+     * level every slice - "held the full second" means every sample
+     * reads low. The raw pin term is load-bearing: when the waking
+     * press merged into a multi-press it was never accepted and the
+     * release tracker never armed, so the event alone would be blind
+     * to the release (and a mis-touch would boot the device). It
+     * also sends spurious EMI wakes (no key at all) straight back to
+     * sleep on the next slice. The tracker term fires only on a
+     * sample where the pin is already high, so the OR is subsumed -
+     * kept for intent and parameter use.                          */
+    if ((events & KEY_EV_K0UP) || (P3 & 0x04))
+    {
+        sb_phase = SBS_REARM;    /* release seen: one grace slice,
                                     then back to deep sleep            */
         sb_timer = 1;
         return;
@@ -155,10 +250,9 @@ void Mode_Standby_Slice(unsigned char events)
         return;
 
     /* full second held: genuine power-on                              */
-    Standby_ResumeInit();
     Buttons_Key0Disarm();        /* swallow the pending long-press
                                     release - the count mode must not
                                     see it, by architecture not by
                                     tolerance                          */
-    App_SwitchTo(APP_MODE_COUNT);
+    Standby_WakeComplete();      /* power gates -> resume -> (warn?)   */
 }

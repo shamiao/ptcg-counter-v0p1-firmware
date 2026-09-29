@@ -76,8 +76,10 @@ void main(void)
 
     Timeslice_Init();            /* WKT: 20ms slices start here */
 
-    App_SwitchTo(APP_MODE_COUNT);/* count mode entry: renders "  0" and
-                                     chirps the 2kHz entry beep        */
+    App_BootViaStandby();        /* boot traverses standby: voltage
+                                     gates, hardware resume, (low-batt
+                                     warning if due), then the count
+                                     mode entry chirps                  */
 
     /* Frame loop: collect the key events of this slice, hand them to
        the mode dispatcher, print the 5s heartbeat as the slice-cadence

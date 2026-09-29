@@ -8,7 +8,9 @@
 
 /* The one global: which mode owns the panel right now. Everything
  * else (counter value, coin phase) is static inside its mode file. */
-static unsigned char data app_mode = APP_MODE_COUNT;
+static unsigned char data app_mode = APP_MODE_STANDBY;  /* zero-init;
+                                   the boot traversal sets the real
+                                   mode before the first App_Slice   */
 
 /* Mode-entry chirp: a short 2kHz beep on every App_SwitchTo (boot
  * entry included). Switched on at entry, switched off by the slice
@@ -53,6 +55,14 @@ void App_SwitchTo(unsigned char mode)
         Mode_Standby_Enter();
         break;
     }
+}
+
+void App_BootViaStandby(void)
+{
+    app_mode = APP_MODE_STANDBY;    /* no chirp: house-keeping state  */
+    Mode_Standby_Boot();            /* straight into the wake end:
+                                       power gates, resume, then on
+                                       to the count mode             */
 }
 
 void App_Slice(unsigned char events)

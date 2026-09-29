@@ -6,6 +6,9 @@
                                        frequency set in STC-ISP/stcgal */
 #define UART_BAUDRATE    9600UL     /* UART1 8N1, Timer1 1T auto-reload */
 #define VCC_OVERVOLT_MV  5500UL     /* boot overvoltage gate threshold  */
+#define VCC_HALT_MV       2750UL    /* standby wake: refuse to boot
+                                       below this (dead battery)       */
+#define VCC_LOWBAT_MV     2850UL    /* standby wake: low-battery warn   */
 
 /** 
 Hardware definition of this project

@@ -1,7 +1,7 @@
 #ifndef __MODE_STANDBY_H__
 #define __MODE_STANDBY_H__
 
-/* Mode 2: standby ("pre-power-on"). Entered after 1 min without any
+/* Mode 0 (standby): "pre-power-on". Entered after 1 min without any
  * key event: panel and tone off, pins parked, WKT stopped, deep STOP
  * until an INT0 (KEY0) falling edge. The wake opens a 1s long-press
  * window on the normal timeslice: releasing KEY0 inside it is an
@@ -12,5 +12,10 @@
 
 void Mode_Standby_Enter(void);
 void Mode_Standby_Slice(unsigned char events);
+void Mode_Standby_Boot(void);   /* cold boot: skip the deep stop and
+                                   the long-press window, run the wake
+                                   completion (power checks + resume)
+                                   directly; no release detection and
+                                   no release masking                 */
 
 #endif
