@@ -107,3 +107,12 @@ unsigned char Buttons_Key0Released(void)
     }
     return 0;
 }
+
+/* swallow a pending KEY0 release without touching the pin state: the
+ * standby resume disarms the tracker so the long-press release can
+ * never surface as an event in the mode that follows. Architecture
+ * rule - not a business-mode tolerance.                             */
+void Buttons_Key0Disarm(void)
+{
+    k0_armed = 0;
+}

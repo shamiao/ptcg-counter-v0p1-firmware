@@ -421,6 +421,26 @@
               <FileType>1</FileType>
               <FilePath>.\display.c</FilePath>
             </File>
+            <File>
+              <FileName>app.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\app.c</FilePath>
+            </File>
+            <File>
+              <FileName>mode_count.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\mode_count.c</FilePath>
+            </File>
+            <File>
+              <FileName>mode_coin.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\mode_coin.c</FilePath>
+            </File>
+            <File>
+              <FileName>mode_standby.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\mode_standby.c</FilePath>
+            </File>
           </Files>
         </Group>
       </Groups>

@@ -90,6 +90,21 @@ void HT1621_LcdOn(void)
     HT1621_SendCommand(0x03);     /* LCD_ON        0000-0011-X */
 }
 
+/* display park (standby path): drive off; caller follows with
+ * SysDisable to stop the oscillator entirely                        */
+void HT1621_LcdOff(void)
+{
+    HT1621_SendCommand(0x02);     /* LCD_OFF       0000-0010-X */
+}
+
+/* full chip park: stops the on-chip RC oscillator - panel, tone and
+ * RAM addressing are all dead until the next SysInit (RAM content
+ * is not retained through this)                                    */
+void HT1621_SysDisable(void)
+{
+    HT1621_SendCommand(0x00);     /* SYS_DIS       0000-0000-X */
+}
+
 /* buzzer primitives: the tone generator runs from the same RC_256K
  * oscillator as the LCD driver, so SysInit must precede any TONE.  */
 void HT1621_Buzzer2kOn(void)

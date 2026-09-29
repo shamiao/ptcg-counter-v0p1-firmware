@@ -4,26 +4,32 @@
 
 | 文件 | 职责 |
 |------|------|
-| main.c | 主流程：boot 顺序、饱和计数业务（`Counter_ApplyKey`/`Counter_Render`，0~990 饱和计数器，u16 纯单位计数，与步长解耦） |
+| main.c | 主流程：boot 顺序 + 帧循环骨架（采事件 → `App_Slice` 分发 → 心跳 → 睡）；业务逻辑全部在 app/mode_* 模块 |
 | vlcd.c/.h | P1.1 PWM 端口与功能、VCC 测量（ADC15）、BGV 出厂值捕获（`VLCD_EarlyInit()`，**必须是 main 第一句**） |
 | ht1621.c/.h | HT1621 总线端口初始化、命令序列与诊断 |
-| buttons.c/.h | 按键初始化、`Buttons_Read()`（位掩码：bit0=KEY_MAIN/KEY0、bit1..5=KEY1..5、bit6=KEY6）、按键状态机 `Buttons_Scan()`（每片一步，返回新接受的单键掩码：S0 空闲 → 单键沿触发一次 → S1 持按无重复；任意态见 2+ 键 → S2 拦截、全松才回 S0。**消抖 = 20ms 采样节拍**，短于一片的抖动采不到；双触发需键抖 >20ms，属坏开关范畴，对比分析见 key-debounce-analysis.md）与 **KEY0 松开跟踪器 `Buttons_Key0Released()`**（双状态机的第二机：接受 KEY0 按下时武装，KEY0 松开触发一次——含 S2 内先松 KEY0 的情形；主 FSM 保持纯键数驱动不受影响） |
+| buttons.c/.h | 按键初始化、`Buttons_Read()`（位掩码：bit0=KEY_MAIN/KEY0、bit1..5=KEY1..5、bit6=KEY6）、按键状态机 `Buttons_Scan()`（每片一步，返回新接受的单键掩码：S0 空闲 → 单键沿触发一次 → S1 持按无重复；任意态见 2+ 键 → S2 拦截、全松才回 S0。**消抖 = 20ms 采样节拍**，短于一片的抖动采不到；双触发需键抖 >20ms，属坏开关范畴，对比分析见 key-debounce-analysis.md）与 **KEY0 松开跟踪器 `Buttons_Key0Released()`**（双状态机的第二机：接受 KEY0 按下时武装，KEY0 松开触发一次——含 S2 内先松 KEY0 的情形；主 FSM 保持纯键数驱动不受影响）；`Buttons_Key0Disarm()` 吞掉待决松开事件（待机唤醒用，架构级屏蔽） |
 | uart.c/.h | UART1 初始化与字节发送 |
 | common.c/.h | 延时、`putchar`、`SleepForever` |
-| timeslice.c/.h | 20ms 帧循环：WKT 唤醒、`g_cycle`、`Slice_SleepOneTick()`；`Timeslice_EarlyInit()`（main 第二句）快照 idata F8/F9 出厂 WKT 频率并算好重装值。STC8H 的 WKT 无中断向量，"醒来"即 tick——醒着时间不走，超片即掉帧（无积压），片内工作必须远短于 20ms |
-| display.c/.h | 3 位段码显示：`g_disp_buf[3]`（个/十/百，bit7=EN bit6=DP bit0-5=字符码 0~35）+ code 区查表 `g_7segtab[3][36][2]`（tools/gen7segtab.py 生成，改字形/接线须重跑）+ `Display_Render()` 全面覆写渲染。字形严格按 dev-notes/7seg-charset.html |
+| timeslice.c/.h | 20ms 帧循环：WKT 唤醒、`g_cycle`、`Slice_SleepOneTick()`；`Timeslice_EarlyInit()`（main 第二句）快照 idata F8/F9 出厂 WKT 频率并算好重装值。STC8H 的 WKT 无中断向量，"醒来"即 tick——醒着时间不走，超片即掉帧（无积压），片内工作必须远短于 20ms。**不变量（2026-09-29 修订）：除待机深睡期间（INT0 空 ISR，EX0/EA 短暂使能）外全固件无中断（EA=0）**；待机深睡复用同一个 STOP 点，仅关 WKTEN 使其只能被 INT0 结束 |
+| display.c/.h | 3 位段码显示：`g_disp_buf[3]`（个/十/百，bit7=EN bit6=DP bit0-5=字符码 0~35，`DISP_GLYPH('A')` 宏转换）+ code 区查表 `g_7segtab[3][36][2]`（tools/gen7segtab.py 生成，改字形/接线须重跑）+ `Display_Render()` 全面覆写渲染。字形严格按 dev-notes/7seg-charset.html |
+| app.c/.h | UI 模式分发：`app_mode`（唯一全局）；`App_Slice(events)` 每片分发到当前模式（并递减进入 chirp 定时器，归零关蜂鸣）；`App_SwitchTo()` 切模式 + 调 enter 钩子 + **2K 进入短鸣（100ms，片驱动；APP_MODE_STANDBY 豁免——非业务模式）**；`App_BeepCancel()` 供接管蜂鸣器的流程作废 chirp；**空闲检测（`idle_slices` u16，任何键事件清零，1 分钟无操作 → 待机）**。**事件字**：bit0..6=被接受的单键掩码、bit7=`KEY_EV_K0UP`（KEY0 松开），同片可并发 |
+| mode_count.c/.h | 模式 0（默认）：饱和计数器，`count_val`（u16）模块私有；KEY1..6=±100/±10；**±100 越界即拒绝（只操作百位），±10 边界饱和；值动=接受（40ms 单鸣）、值不动=拒绝（3×20ms 超短鸣），键反馈蜂鸣为 ON/GAP 片驱动日程；Enter 清零自身鸣叫日程**；KEY0 按下→无条件切 APP_MODE_COIN |
+| mode_coin.c/.h | 模式 1：投硬币仪式——摇动（80ms/面，"U P"/"DON"，允许轻微拖影）→ KEY0 松开锁定结果 → **按面分化的闪显**（UP：显隐显隐显 300ms 相×5=1.5s；DON：显隐显 500ms 相×3=1.5s；每次"显"伴 2K 蜂鸣，末相无缝流入长显）→ 5s 显 → 0.3s 隐 → 回计数模式。相位机 + 片倒计数全非阻塞，忽略一切按键事件，串口静默 |
+| mode_standby.c/.h | 模式 2（待开机）：1 分钟无操作进入。SLEEP 相：HT1621 TONE_OFF→LCD_OFF→SYS_DIS 停振、P1.1 高阻、全端口整写准双向安全态（与 SleepForever 同类例外）、关 WKTEN、INT0 空 ISR 唤醒、STOP（复用 Slice_SleepOneTick 的唯一睡眠点；ArmDeepStop 含 IE0=0 清 pending 沿）。AWAIT 相：醒来当片恢复无中断不变量 + 重开 WKT，50 片窗口内 KEY0 松开=误触 → **SBS_REARM 宽限相**（等一片让释放抖动结束再重武装 INT0；宽限到期 P3.2 低则开新窗口，不吞即时再按）；满 1 秒=开机：Buttons/HT1621/VLCD(Reapply 重测) 重初始化 + 清 SEG RAM + `Buttons_Key0Disarm()` 吞掉待决长按松开 → 切计数模式（有 chirp）。内存全程保留。抖动审计结论：唤醒侧无需容忍处理（20ms 节拍即容忍），详见 business-logic-log 步骤 15 |
 
-端口模式/上拉配置一律用掩码操作（`|=` / `&= ~`）只动本模块的引脚位，不整写 PxM0/PxM1/PxPU；硬件级参数（主时钟 `MAIN_FOSC_HZ`、波特率 `UART_BAUDRATE`、过压阈值 `VCC_OVERVOLT_MV`）集中在 hardware-definition.h。`SleepForever()` 中对 PxM0/PxM1 的整体赋值是刻意为之（强制全部引脚回安全态），不在此例。
+端口模式/上拉配置一律用掩码操作（`|=` / `&= ~`）只动本模块的引脚位，不整写 PxM0/PxM1/PxPU；硬件级参数（主时钟 `MAIN_FOSC_HZ`、波特率 `UART_BAUDRATE`、过压阈值 `VCC_OVERVOLT_MV`）集中在 hardware-definition.h。`SleepForever()` 与待机下电（`Standby_PowerDown`）中对 PxM0/PxM1 的整体赋值是刻意为之（强制全部引脚回安全态），不在此例。
 
 **术语约定**：文档/交流中计数对象称 **DMG**（PTCG 中角色身上的数字是已受伤害值，不是血量）；**程序代码与注释一律不出现 HP/DMG**——固件视角它只是一个纯计数器（业务语义只活在文档里）。
+
+**蜂鸣器所有权**（HT1621 TONE，全程片驱动无忙等）：app 层持有模式进入 chirp（100ms，`App_SwitchTo` 开鸣、`App_Slice` 递减关鸣）；count 模块持有键反馈日程（ON/GAP 状态机）；coin 模块在闪显相位直接控鸣。规则：**接管蜂鸣器者必须作废他人日程**——coin 锁面时 `App_BeepCancel()` 作废 app chirp；模式切换时 Enter 钩子清零自身日程（冻结的旧模式日程无害，坑在再进入时的残留）。同一时刻只有一个所有者。
 
 ## 开机流程（当前 main.c 骨架）
 
 1. `VLCD_EarlyInit()`（main 第一句，捕获 idata 出厂 BGV 镜像）；`Timeslice_EarlyInit()` 紧随其后（捕获 idata F8/F9 出厂 WKT 频率并算出 WKT 重装值）；随后 UART1 初始化；
 2. **过压检查（开机第一项功能，趁 UART 刚好可以报告时立即执行）**：ADC15 自测 VCC，VCC ≥ `VCC_OVERVOLT_MV` → `SleepForever()`（IO 置安全态 + 全中断关闭 + 永久掉电 + 死循环兜底），此后不再复查过压；
 3. 其余外设初始化（按键、HT1621 总线）；`VLCD_SetByVccMv()` 按开机 VCC 一次性设定 VLCD（含 ADC 失败 60% 下限兜底；`VLCD_Reapply()` 为"重测 VCC 再设定"的无参变种，供连续调节用，内含过压检查为无）；
-4. `HT1621_SysInit()`：SYS_EN + RC_256K（LCD/蜂鸣的公共前置）；`HT1621_LcdOn()`（BIAS+LCD_ON）后进入自检显示：**8.8.8 + 蜂鸣 2K 亮 0.8s**（`HT1621_Buzzer2kOn()`，DelayMs 线性延时）→ **缓冲清零渲染 + `HT1621_BuzzerOff()` 灭 0.5s**（LCD 保持 ON）；
-5. `Timeslice_Init()`（IRCDB + WKT 20ms）后进入帧循环：每片 `按键扫描（`Buttons_Scan()` 接受的单键 → `Counter_ApplyKey()` 饱和加减 → `Counter_Render()` 重渲染 + 开发期打印）→ KEY0 松开检查（`Buttons_Key0Released()`，业务动作待定，仅开发期打印）→ Slice_SleepOneTick()`（STOP 等唤醒，醒来 g_cycle++）。全固件无中断（EA=0），详见 [business-logic-log.md](business-logic-log.md)。
+4. `HT1621_SysInit()`：SYS_EN + RC_256K（LCD/蜂鸣的公共前置）；`HT1621_LcdOn()`（BIAS+LCD_ON）后进入自检显示：**8.8.8 亮 0.5s（DelayMs 线性延时，无蜂鸣）→ 灭 0.3s**（LCD 保持 ON）；
+5. `Timeslice_Init()`（IRCDB + WKT 20ms）后 `App_SwitchTo(APP_MODE_COUNT)` 进入模式系统。帧循环每片：`Buttons_Scan()` 掩码 + `Buttons_Key0Released()`（编入 bit7）→ `App_Slice(events)` 分发到当前模式（模式内一切流程非阻塞、片驱动）→ 每 5s（250 片）`ts N` 心跳 → `Slice_SleepOneTick()`（STOP 等唤醒，醒来 g_cycle++）。全固件无中断（EA=0），详见 [business-logic-log.md](business-logic-log.md)。
 
 bring-up 阶段的诊断版 main（DATA 浮空测试、蜂鸣、全段点亮、READ 转储、alive 打印）存档于 [main-debug-c.txt](main-debug-c.txt)，不再参与编译。
 

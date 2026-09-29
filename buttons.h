@@ -32,5 +32,8 @@ unsigned char Buttons_Scan(void);
  * joined as the second key of a multi-press) never arms the tracker.
  * Call once per slice, after Buttons_Scan.                           */
 unsigned char Buttons_Key0Released(void);
+void Buttons_Key0Disarm(void);    /* swallow the pending KEY0 release
+                                     event (no release will fire until
+                                     the next accepted KEY0 press)    */
 
 #endif

@@ -12,7 +12,8 @@
 
 #define SLICE_MS  20
 
-/* data-space volatile; main-flow only (this firmware runs no ISRs).
+/* data-space volatile; main-flow only (the sole ISR in this firmware
+ * is standby's empty INT0 wake handler, which touches nothing).
  * Wraps naturally at 65536 slices = ~21.8 min; business code needing
  * longer durations keeps its own counters. */
 extern volatile unsigned int data g_cycle;   /* slices run so far */

@@ -6,6 +6,8 @@
 void HT1621_Init(void);          /* port modes + bus idle levels       */
 void HT1621_SysInit(void);       /* SYS_EN + RC_256K (before TONE/LCD) */
 void HT1621_LcdOn(void);         /* BIAS 1/3 4COM + LCD_ON             */
+void HT1621_LcdOff(void);        /* LCD_OFF (standby park)             */
+void HT1621_SysDisable(void);    /* SYS_DIS: stop the RC oscillator    */
 void HT1621_Buzzer2kOn(void);    /* TONE 2K + TONE ON (SysInit first)  */
 void HT1621_BuzzerOff(void);     /* TONE OFF                           */
 void HT1621_WriteRam(unsigned char addr, unsigned char *src,

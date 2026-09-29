@@ -122,7 +122,10 @@ unsigned int VCC_MeasureMv(void)
 #define PWM_PERIOD        VLCD_PWM_PERIOD   /* ARR+1, PWM clock counts  */
 #define VLCD_REG_MV       3200UL  /* regulate DC VLCD to ~3.2V          */
 #define VLCD_IR_DROP_MV   63UL    /* 35uA load x 1.8kohm series R       */
-#define PWM_ENGAGE_MV     3600UL  /* PWM engages only above this VCC    */
+#define PWM_ENGAGE_MV     4300UL  /* PWM engages only above this VCC
+                                     (LIR2032 charge ceiling ~4.2V:
+                                     the whole rechargeable range sits
+                                     in the GPIO-high dead band)      */
 #define PWM_CCR_FLOOR     ((PWM_PERIOD * 3UL) / 5UL)  /* 60% floor = 72 */
 
 /* PWM1N on P1.1, 50kHz; ccr = high counts (duty = ccr/PWM_PERIOD) */
